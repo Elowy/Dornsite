@@ -47,6 +47,61 @@ const Auth = {
   },
 };
 
+// ============ Google bejelentkezés (ha be van állítva) ============
+async function initGoogle() {
+  let cfg;
+  try {
+    cfg = await (await fetch('/api/auth/config')).json();
+  } catch {
+    return;
+  }
+  if (!cfg.google || !cfg.googleClientId) return;
+
+  const note = document.getElementById('authNote');
+  if (note) note.classList.add('hidden');
+
+  const script = document.createElement('script');
+  script.src = 'https://accounts.google.com/gsi/client';
+  script.async = true;
+  script.defer = true;
+  script.onload = () => {
+    if (!window.google || !google.accounts || !google.accounts.id) return;
+    google.accounts.id.initialize({
+      client_id: cfg.googleClientId,
+      callback: onGoogleCredential,
+    });
+    google.accounts.id.renderButton(document.getElementById('googleSignin'), {
+      theme: 'filled_black',
+      size: 'large',
+      text: 'continue_with',
+      shape: 'pill',
+      width: 300,
+    });
+    document.getElementById('googleWrap').classList.remove('hidden');
+  };
+  document.head.appendChild(script);
+}
+
+async function onGoogleCredential(response) {
+  try {
+    const res = await fetch('/api/auth/google', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ credential: response.credential }),
+    });
+    const data = await res.json();
+    if (res.ok) {
+      Auth.set(data.token, data.user);
+      closeAuth();
+      toast('Belépve Google fiókkal 👋');
+    } else {
+      toast(data.error || 'Google belépés sikertelen');
+    }
+  } catch {
+    toast('Hálózati hiba a Google belépésnél');
+  }
+}
+
 // ============ DOM ============
 const deck = document.getElementById('deck');
 const emptyEl = document.getElementById('empty');
@@ -503,6 +558,7 @@ async function init() {
 
 (async function start() {
   await Auth.refresh();
+  initGoogle();
   await init();
   // Megosztott mélylink: ?c=ID → nyisd meg a részletet
   const params = new URLSearchParams(location.search);

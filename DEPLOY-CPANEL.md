@@ -78,6 +78,7 @@ Ugyanezen az oldalon, a **Environment variables** résznél add hozzá:
 |---|---|
 | `ADMIN_PASSWORD` | **egyedi, erős jelszó** (ne az alap `admin123`!) |
 | `AUTH_SECRET` | hosszú, véletlen szöveg (a felhasználói tokenek aláírásához) |
+| `GOOGLE_CLIENT_ID` | *(opcionális)* Google OAuth kliens-azonosító a Google belépéshez |
 | `NODE_ENV` | `production` |
 | `DB_DRIVER` | `mysql` |
 | `DB_HOST` | `localhost` (a legtöbb cPanel-en ez jó) |

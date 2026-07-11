@@ -259,6 +259,14 @@ async function getUserById(id) {
   return rows[0] || null;
 }
 
+async function getUserByProvider(provider, providerId) {
+  const [rows] = await pool.query('SELECT * FROM users WHERE provider = ? AND provider_id = ?', [
+    provider,
+    providerId,
+  ]);
+  return rows[0] || null;
+}
+
 // --- Kommentek ---
 async function addComment(contentId, userId, body) {
   const [res] = await pool.query(
@@ -309,6 +317,7 @@ module.exports = {
   createUser,
   getUserByEmail,
   getUserById,
+  getUserByProvider,
   addComment,
   getComments,
   deleteComment,
