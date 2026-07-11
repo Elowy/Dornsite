@@ -2,14 +2,23 @@
 <html lang="hu">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+  <meta name="theme-color" content="#0f0f14" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="Dornsite" />
   <title>Dornsite</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%F0%9F%94%A5%3C/text%3E%3C/svg%3E" />
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
   <header class="topbar">
     <div class="logo">🔥 Dornsite</div>
-    <button id="likesBtn" class="ghost-btn" title="Kedveltek">❤️ <span id="likeCount">0</span></button>
+    <div class="topbar-actions">
+      <button id="likesBtn" class="ghost-btn" title="Kedveltek">❤️ <span id="likeCount">0</span></button>
+      <button id="authBtn" class="ghost-btn">Belépés</button>
+    </div>
   </header>
 
   <main class="stage">
@@ -27,6 +36,7 @@
 
   <div class="controls">
     <button id="nopeBtn" class="action-btn nope" title="Nem tetszik">✕</button>
+    <button id="infoBtn" class="action-btn info" title="Részletek / kommentek">ℹ️</button>
     <button id="likeBtn" class="action-btn like" title="Tetszik">♥</button>
   </div>
 
@@ -39,6 +49,62 @@
     <div id="likesGrid" class="likes-grid"></div>
     <p id="likesEmpty" class="likes-empty hidden">Még nincs kedvelt tartalom. Húzz jobbra! →</p>
   </div>
+
+  <!-- Tartalom részlet + megosztás + kommentek -->
+  <div id="detailPanel" class="panel hidden">
+    <div class="panel-head">
+      <h2 id="detailTitle">Tartalom</h2>
+      <button id="closeDetail" class="ghost-btn">✕</button>
+    </div>
+    <div class="detail-body">
+      <div id="detailMedia" class="detail-media"></div>
+      <div class="detail-meta">
+        <a id="detailLink" class="detail-link hidden" target="_blank" rel="noopener">🔗 Link megnyitása</a>
+        <button id="shareBtn" class="ghost-btn">↗ Megosztás</button>
+      </div>
+
+      <h3 class="comments-title">Kommentek (<span id="commentCount">0</span>)</h3>
+      <div id="commentsList" class="comments-list"></div>
+
+      <form id="commentForm" class="comment-form hidden">
+        <input id="commentInput" type="text" maxlength="1000" placeholder="Írj kommentet…" />
+        <button type="submit" class="primary-btn">Küldés</button>
+      </form>
+      <p id="commentLoginHint" class="comment-hint hidden">
+        A kommenteléshez <button class="linklike" id="commentLoginBtn">jelentkezz be</button>.
+      </p>
+    </div>
+  </div>
+
+  <!-- Bejelentkezés / regisztráció modal -->
+  <div id="authModal" class="modal hidden">
+    <div class="modal-box">
+      <button id="closeAuth" class="modal-close">✕</button>
+      <div class="auth-tabs">
+        <button class="auth-tab active" data-tab="login">Belépés</button>
+        <button class="auth-tab" data-tab="register">Regisztráció</button>
+      </div>
+
+      <form id="loginForm" class="auth-form">
+        <input type="email" id="loginEmail" placeholder="E-mail" autocomplete="email" required />
+        <input type="password" id="loginPassword" placeholder="Jelszó" autocomplete="current-password" required />
+        <button type="submit" class="primary-btn">Belépés</button>
+        <p class="auth-error hidden" id="loginError"></p>
+      </form>
+
+      <form id="registerForm" class="auth-form hidden">
+        <input type="text" id="regName" placeholder="Megjelenített név (opcionális)" />
+        <input type="email" id="regEmail" placeholder="E-mail" autocomplete="email" required />
+        <input type="password" id="regPassword" placeholder="Jelszó (min. 6 karakter)" autocomplete="new-password" required />
+        <button type="submit" class="primary-btn">Fiók létrehozása</button>
+        <p class="auth-error hidden" id="registerError"></p>
+      </form>
+
+      <p class="auth-note">Hamarosan Google fiókkal is be lehet majd lépni.</p>
+    </div>
+  </div>
+
+  <div id="toast" class="toast hidden"></div>
 
   <script src="app.js"></script>
 </body>

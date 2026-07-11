@@ -76,6 +76,8 @@ async function loadStats() {
     ${stat(s.totalLikes, '❤️ Tetszik')}
     ${stat(s.totalDislikes, '✕ Nem tetszik')}
     ${stat(s.sessions, 'Egyedi látogató')}
+    ${stat(s.totalUsers ?? 0, '👤 Regisztrált fiók')}
+    ${stat(s.totalComments ?? 0, '💬 Komment')}
   `;
 }
 
@@ -97,6 +99,7 @@ async function loadContent() {
   }
 
   grid.innerHTML = content.map(itemHtml).join('');
+  window._contentCache = content;
 
   grid.querySelectorAll('[data-del]').forEach((btn) =>
     btn.addEventListener('click', () => deleteContent(btn.dataset.del))
@@ -104,12 +107,32 @@ async function loadContent() {
   grid.querySelectorAll('[data-toggle]').forEach((btn) =>
     btn.addEventListener('click', () => toggleContent(btn.dataset.toggle, btn.dataset.active === 'true'))
   );
+  grid.querySelectorAll('[data-edit]').forEach((btn) =>
+    btn.addEventListener('click', () => editContent(btn.dataset.edit))
+  );
+}
+
+async function editContent(id) {
+  const c = (window._contentCache || []).find((x) => String(x.id) === String(id));
+  const title = prompt('Cím:', c ? c.title : '');
+  if (title === null) return;
+  const link = prompt('Link (üresen hagyható):', c ? c.link || '' : '');
+  if (link === null) return;
+  await fetch(`/api/admin/content/${id}`, {
+    method: 'PUT',
+    headers: authHeaders({ 'Content-Type': 'application/json' }),
+    body: JSON.stringify({ title, link }),
+  });
+  loadContent();
 }
 
 function itemHtml(c) {
   const media = c.type === 'video'
     ? `<video src="${c.url}" muted></video>`
     : `<img src="${c.url}" alt="">`;
+  const link = c.link
+    ? `<a class="item-link" href="${escapeHtml(c.link)}" target="_blank" rel="noopener">🔗 link</a>`
+    : '';
   return `
     <div class="item ${c.active ? '' : 'inactive'}">
       <div class="thumb">${media}</div>
@@ -118,8 +141,11 @@ function itemHtml(c) {
         <div class="item-votes">
           <span class="l">❤️ ${c.likes}</span>
           <span class="d">✕ ${c.dislikes}</span>
+          <span class="c">💬 ${c.comments || 0}</span>
         </div>
+        ${link}
         <div class="item-actions">
+          <button data-edit="${c.id}">Szerkeszt</button>
           <button data-toggle="${c.id}" data-active="${c.active}">${c.active ? 'Elrejt' : 'Megjelenít'}</button>
           <button class="del" data-del="${c.id}">Törlés</button>
         </div>
@@ -178,6 +204,7 @@ document.getElementById('uploadForm').addEventListener('submit', async (e) => {
   }
   const fd = new FormData();
   fd.append('title', document.getElementById('uploadTitle').value);
+  fd.append('link', document.getElementById('uploadLink').value);
   selectedFiles.forEach((f) => fd.append('files', f));
 
   btn.disabled = true;
@@ -191,6 +218,7 @@ document.getElementById('uploadForm').addEventListener('submit', async (e) => {
       fileList.innerHTML = '';
       fileInput.value = '';
       document.getElementById('uploadTitle').value = '';
+      document.getElementById('uploadLink').value = '';
       loadContent();
       loadStats();
     } else {

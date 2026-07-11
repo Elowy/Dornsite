@@ -172,3 +172,13 @@ body {
 
 .top-liked { display: flex; gap: 8px; margin-top: 8px; }
 .top-liked img, .top-liked video { width: 44px; height: 44px; border-radius: 8px; object-fit: cover; }
+
+.item-votes .c { color: var(--muted); }
+.item-link {
+  display: inline-block;
+  font-size: 12px;
+  color: var(--accent);
+  text-decoration: none;
+  margin-bottom: 8px;
+  word-break: break-all;
+}
