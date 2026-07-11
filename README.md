@@ -3,8 +3,9 @@
 Tinder-stílusú swipe weboldal: a feltöltött tartalmakat véletlenszerű sorrendben
 mutatja, a felhasználók pedig **jobbra húzva** (tetszik) vagy **balra húzva**
 (nem tetszik) értékelhetik őket. Tartozik hozzá egy **admin vezérlőpult** a
-tartalmak kezeléséhez és a statisztikák megtekintéséhez, az adatok pedig egy
-beágyazott **SQLite adatbázisban** tárolódnak.
+tartalmak kezeléséhez és a statisztikák megtekintéséhez, az adatok pedig
+**MySQL/MariaDB** vagy (helyi fejlesztéshez) beágyazott **SQLite** adatbázisban
+tárolódnak.
 
 ## Funkciók
 
@@ -15,12 +16,14 @@ beágyazott **SQLite adatbázisban** tárolódnak.
 - ❤️ **Kedveltek** – a jobbra húzott tartalmak külön panelen visszanézhetők
 - 🛠️ **Admin panel** – jelszavas belépés, kép/videó feltöltés (drag & drop),
   tartalmak elrejtése/törlése, valós idejű statisztikák
-- 🗄️ **SQLite adatbázis** – nem kell külön adatbázis-szerver
+- 🗄️ **Két adatbázis-driver** – MySQL/MariaDB (éles, pl. cPanel) vagy SQLite
+  (nulla-konfig helyi fejlesztéshez), a `DB_DRIVER` env változóval választható
 
 ## Technológia
 
 - **Backend:** Node.js + Express
-- **Adatbázis:** SQLite (`better-sqlite3`)
+- **Adatbázis:** MySQL/MariaDB (`mysql2`) vagy SQLite (`better-sqlite3`) –
+  közös adat-réteg mögött (`data/`), env-ből választható
 - **Feltöltés:** Multer
 - **Frontend:** vanilla HTML/CSS/JS (nincs build lépés)
 
@@ -33,6 +36,7 @@ npm install
 # 2. Környezeti változók (opcionális, de ajánlott)
 cp .env.example .env
 #   – állítsd be az ADMIN_PASSWORD értékét!
+#   – helyi futtatáshoz nem kell adatbázis-szerver: alapból SQLite fut.
 
 # 3. Indítás
 npm start
@@ -45,6 +49,13 @@ Ezután:
 
 Az admin panel alapértelmezett jelszava `admin123` (a `.env` fájlban
 felülírható az `ADMIN_PASSWORD` változóval).
+
+### Adatbázis kiválasztása
+
+- **SQLite** (alap): nem kell semmit beállítani, a `data/` mappában jön létre.
+- **MySQL/MariaDB:** állítsd be a `.env`-ben: `DB_DRIVER=mysql`, majd a
+  `DB_HOST`, `DB_PORT`, `DB_USER`, `DB_PASSWORD`, `DB_NAME` értékeket. A táblákat
+  az app az első indításkor automatikusan létrehozza.
 
 ## Használat
 
@@ -59,15 +70,20 @@ A cPanel-es (Node.js-t támogató) tárhelyre való telepítés lépésről lép
 [**DEPLOY-CPANEL.md**](DEPLOY-CPANEL.md) fájlban található. Röviden: a Phusion
 Passenger futtatja az appot, az indítófájl az `app.js`, és a **Setup Node.js
 App** felületen kell beállítani a Node-verziót, a környezeti változókat
-(`ADMIN_PASSWORD`, `NODE_ENV`) és lefuttatni az `npm install`-t.
+(`ADMIN_PASSWORD`, `NODE_ENV`, valamint a MySQL-hez a `DB_*` változók) és
+lefuttatni az `npm install`-t. Az útmutató a MySQL adatbázis cPanel-es
+létrehozását is tartalmazza.
 
 ## Projekt szerkezete
 
 ```
 app.js             – belépési pont cPanel / Passenger számára (server.js-t tölti be)
-server.js          – Express szerver belépési pont
-paths.js           – adat- és feltöltési mappák (env-ből felülírható)
-db.js              – SQLite kapcsolat és séma
+server.js          – Express szerver belépési pont (adatbázis init + indítás)
+paths.js           – feltöltési és (SQLite) adatmappa (env-ből felülírható)
+db/
+  index.js         – driver-választó (DB_DRIVER alapján)
+  mysql.js         – MySQL/MariaDB implementáció (mysql2)
+  sqlite.js        – SQLite implementáció (better-sqlite3)
 routes/
   content.js       – publikus API (kártyák, szavazás, kedveltek)
   admin.js         – admin API (belépés, feltöltés, kezelés, statisztika)
@@ -75,14 +91,15 @@ public/
   index.html/.css/.js  – swipe felület
   admin.html/.css/.js  – admin vezérlőpult
 uploads/           – feltöltött fájlok (gitből kizárva)
-data/              – SQLite adatbázis (gitből kizárva)
 ```
 
 ## Adatmodell
 
+Mindkét driver ugyanazt a sémát hozza létre automatikusan:
+
 - **content** – feltöltött tartalom (`title`, `type`, `filename`, `active`, …)
 - **votes** – szavazatok (`content_id`, `session_id`, `direction`) – sessionönként
-  tartalmanként egy szavazat, felülírható
+  tartalmanként egy szavazat, felülírható (upsert)
 
 ## Megjegyzés éles használathoz
 

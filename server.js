@@ -7,6 +7,7 @@ const express = require('express');
 const cookieParser = require('cookie-parser');
 
 const { UPLOAD_DIR } = require('./paths');
+const data = require('./db');
 const contentRoutes = require('./routes/content');
 const adminRoutes = require('./routes/admin');
 
@@ -33,10 +34,26 @@ app.use('/api/admin', adminRoutes);
 // Statikus frontend
 app.use(express.static(path.join(__dirname, 'public')));
 
-app.listen(PORT, () => {
-  console.log(`Dornsite fut: http://localhost:${PORT}`);
-  console.log(`Admin panel:  http://localhost:${PORT}/admin.html`);
+// Egységes hibakezelő
+app.use((err, req, res, next) => {
+  console.error('Hiba:', err.message);
+  if (res.headersSent) return next(err);
+  res.status(err.status === 400 ? 400 : 500).json({ error: err.message || 'Szerverhiba' });
 });
+
+// Adatbázis inicializálása, majd indítás
+data
+  .init()
+  .then(() => {
+    app.listen(PORT, () => {
+      console.log(`Dornsite fut (${data.driverName}): http://localhost:${PORT}`);
+      console.log(`Admin panel:  http://localhost:${PORT}/admin.html`);
+    });
+  })
+  .catch((err) => {
+    console.error('Adatbázis inicializálási hiba:', err.message);
+    process.exit(1);
+  });
 
 // cPanel / Phusion Passenger a modult is betöltheti indítófájlként
 module.exports = app;

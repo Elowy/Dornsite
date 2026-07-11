@@ -5,7 +5,7 @@ const fs = require('fs');
 const crypto = require('crypto');
 const express = require('express');
 const multer = require('multer');
-const db = require('../db');
+const data = require('../db');
 const { UPLOAD_DIR } = require('../paths');
 
 const router = express.Router();
@@ -68,99 +68,74 @@ const upload = multer({
   },
 });
 
-router.post('/upload', requireAdmin, upload.array('files', 20), (req, res) => {
-  const files = req.files || [];
-  if (files.length === 0) {
-    return res.status(400).json({ error: 'Nincs feltöltött fájl' });
-  }
-  const titleBase = (req.body.title || '').trim();
-
-  const insert = db.prepare(
-    `INSERT INTO content (title, type, filename, mime) VALUES (?, ?, ?, ?)`
-  );
-  const inserted = [];
-  const tx = db.transaction((list) => {
-    for (const f of list) {
-      const type = /^video\//.test(f.mimetype) ? 'video' : 'image';
-      const info = insert.run(titleBase, type, f.filename, f.mimetype);
-      inserted.push(info.lastInsertRowid);
+router.post('/upload', requireAdmin, upload.array('files', 20), async (req, res, next) => {
+  try {
+    const files = req.files || [];
+    if (files.length === 0) {
+      return res.status(400).json({ error: 'Nincs feltöltött fájl' });
     }
-  });
-  tx(files);
+    const titleBase = (req.body.title || '').trim();
 
-  res.json({ ok: true, count: inserted.length });
+    const items = files.map((f) => ({
+      title: titleBase,
+      type: /^video\//.test(f.mimetype) ? 'video' : 'image',
+      filename: f.filename,
+      mime: f.mimetype,
+    }));
+
+    const count = await data.addContent(items);
+    res.json({ ok: true, count });
+  } catch (err) {
+    next(err);
+  }
 });
 
 // --- Tartalom lista + statisztikák ---
-router.get('/content', requireAdmin, (req, res) => {
-  const rows = db
-    .prepare(
-      `SELECT c.id, c.title, c.type, c.filename, c.mime, c.active, c.created_at,
-              COALESCE(SUM(v.direction = 'like'), 0)    AS likes,
-              COALESCE(SUM(v.direction = 'dislike'), 0) AS dislikes
-         FROM content c
-         LEFT JOIN votes v ON v.content_id = c.id
-        GROUP BY c.id
-        ORDER BY c.created_at DESC`
-    )
-    .all()
-    .map((r) => ({ ...r, url: `/uploads/${r.filename}`, active: !!r.active }));
-
-  res.json({ content: rows });
+router.get('/content', requireAdmin, async (req, res, next) => {
+  try {
+    const rows = await data.listContent();
+    const content = rows.map((r) => ({ ...r, url: `/uploads/${r.filename}`, active: !!r.active }));
+    res.json({ content });
+  } catch (err) {
+    next(err);
+  }
 });
 
 // --- Összesített statisztika (dashboard) ---
-router.get('/stats', requireAdmin, (req, res) => {
-  const totalContent = db.prepare('SELECT COUNT(*) AS n FROM content').get().n;
-  const activeContent = db.prepare('SELECT COUNT(*) AS n FROM content WHERE active = 1').get().n;
-  const totalVotes = db.prepare('SELECT COUNT(*) AS n FROM votes').get().n;
-  const totalLikes = db.prepare("SELECT COUNT(*) AS n FROM votes WHERE direction = 'like'").get().n;
-  const totalDislikes = totalVotes - totalLikes;
-  const sessions = db.prepare('SELECT COUNT(DISTINCT session_id) AS n FROM votes').get().n;
-
-  const topLiked = db
-    .prepare(
-      `SELECT c.id, c.title, c.filename, c.type,
-              COUNT(*) AS likes
-         FROM votes v JOIN content c ON c.id = v.content_id
-        WHERE v.direction = 'like'
-        GROUP BY c.id ORDER BY likes DESC LIMIT 5`
-    )
-    .all()
-    .map((r) => ({ ...r, url: `/uploads/${r.filename}` }));
-
-  res.json({
-    totalContent,
-    activeContent,
-    totalVotes,
-    totalLikes,
-    totalDislikes,
-    sessions,
-    topLiked,
-  });
+router.get('/stats', requireAdmin, async (req, res, next) => {
+  try {
+    const s = await data.getStats();
+    s.topLiked = s.topLiked.map((r) => ({ ...r, url: `/uploads/${r.filename}` }));
+    res.json(s);
+  } catch (err) {
+    next(err);
+  }
 });
 
 // --- Tartalom aktív/inaktív kapcsolása ---
-router.patch('/content/:id', requireAdmin, (req, res) => {
-  const id = parseInt(req.params.id, 10);
-  const active = req.body.active ? 1 : 0;
-  const info = db.prepare('UPDATE content SET active = ? WHERE id = ?').run(active, id);
-  if (info.changes === 0) return res.status(404).json({ error: 'Nem található' });
-  res.json({ ok: true });
+router.patch('/content/:id', requireAdmin, async (req, res, next) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    const found = await data.setActive(id, !!req.body.active);
+    if (!found) return res.status(404).json({ error: 'Nem található' });
+    res.json({ ok: true });
+  } catch (err) {
+    next(err);
+  }
 });
 
 // --- Tartalom törlése (fájllal együtt) ---
-router.delete('/content/:id', requireAdmin, (req, res) => {
-  const id = parseInt(req.params.id, 10);
-  const row = db.prepare('SELECT filename FROM content WHERE id = ?').get(id);
-  if (!row) return res.status(404).json({ error: 'Nem található' });
+router.delete('/content/:id', requireAdmin, async (req, res, next) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    const filename = await data.deleteContent(id);
+    if (!filename) return res.status(404).json({ error: 'Nem található' });
 
-  db.prepare('DELETE FROM content WHERE id = ?').run(id);
-
-  const filePath = path.join(UPLOAD_DIR, row.filename);
-  fs.unlink(filePath, () => {});
-
-  res.json({ ok: true });
+    fs.unlink(path.join(UPLOAD_DIR, filename), () => {});
+    res.json({ ok: true });
+  } catch (err) {
+    next(err);
+  }
 });
 
 module.exports = router;
