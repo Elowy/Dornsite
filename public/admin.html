@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="hu">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Dornsite – Admin</title>
+  <link rel="stylesheet" href="admin.css" />
+</head>
+<body>
+  <!-- Bejelentkezés -->
+  <div id="loginView" class="login-view">
+    <form id="loginForm" class="login-box">
+      <h1>🔒 Admin belépés</h1>
+      <input type="password" id="password" placeholder="Jelszó" autocomplete="current-password" required />
+      <button type="submit" class="primary-btn">Belépés</button>
+      <p id="loginError" class="error hidden">Hibás jelszó</p>
+    </form>
+  </div>
+
+  <!-- Vezérlőpult -->
+  <div id="adminView" class="admin-view hidden">
+    <header class="admin-top">
+      <h1>🔥 Dornsite – Vezérlőpult</h1>
+      <div>
+        <a href="/" class="ghost-btn" target="_blank">Oldal megnyitása ↗</a>
+        <button id="logoutBtn" class="ghost-btn">Kilépés</button>
+      </div>
+    </header>
+
+    <!-- Statisztika -->
+    <section id="stats" class="stats-grid"></section>
+
+    <!-- Feltöltés -->
+    <section class="card-box">
+      <h2>Tartalom feltöltése</h2>
+      <form id="uploadForm">
+        <input type="text" id="uploadTitle" placeholder="Cím / felirat (opcionális)" />
+        <div class="dropzone" id="dropzone">
+          <input type="file" id="fileInput" accept="image/*,video/*" multiple hidden />
+          <p>Kattints ide vagy húzd ide a fájlokat (kép / videó)</p>
+          <div id="fileList" class="file-list"></div>
+        </div>
+        <button type="submit" class="primary-btn" id="uploadBtn">Feltöltés</button>
+        <span id="uploadStatus" class="status"></span>
+      </form>
+    </section>
+
+    <!-- Tartalom lista -->
+    <section class="card-box">
+      <h2>Feltöltött tartalmak (<span id="contentCount">0</span>)</h2>
+      <div id="contentGrid" class="content-grid"></div>
+    </section>
+  </div>
+
+  <script src="admin.js"></script>
+</body>
+</html>

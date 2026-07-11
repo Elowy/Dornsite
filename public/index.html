@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="hu">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>Dornsite</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="logo">🔥 Dornsite</div>
+    <button id="likesBtn" class="ghost-btn" title="Kedveltek">❤️ <span id="likeCount">0</span></button>
+  </header>
+
+  <main class="stage">
+    <div id="deck" class="deck"></div>
+
+    <div id="empty" class="empty hidden">
+      <div class="empty-emoji">🎉</div>
+      <h2>Ennyi volt!</h2>
+      <p>Nincs több tartalom, amit még nem láttál.</p>
+      <button id="restartBtn" class="primary-btn">Újratöltés</button>
+    </div>
+
+    <div id="loading" class="loading">Betöltés…</div>
+  </main>
+
+  <div class="controls">
+    <button id="nopeBtn" class="action-btn nope" title="Nem tetszik">✕</button>
+    <button id="likeBtn" class="action-btn like" title="Tetszik">♥</button>
+  </div>
+
+  <!-- Kedveltek panel -->
+  <div id="likesPanel" class="panel hidden">
+    <div class="panel-head">
+      <h2>Kedveltek</h2>
+      <button id="closeLikes" class="ghost-btn">✕</button>
+    </div>
+    <div id="likesGrid" class="likes-grid"></div>
+    <p id="likesEmpty" class="likes-empty hidden">Még nincs kedvelt tartalom. Húzz jobbra! →</p>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
