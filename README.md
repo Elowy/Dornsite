@@ -14,8 +14,14 @@ tárolódnak.
 - 🎲 **Véletlenszerű betöltés** – minden session csak olyan tartalmat lát, amire
   még nem szavazott
 - ❤️ **Kedveltek** – a jobbra húzott tartalmak külön panelen visszanézhetők
+- 👤 **Felhasználói fiókok** – helyi regisztráció/belépés (e-mail + jelszó);
+  a felépítés készen áll a későbbi Google-bejelentkezésre
+- 💬 **Kommentek** – a bejelentkezett felhasználók hozzászólhatnak a tartalmakhoz
+- 🔗 **Link a tartalomhoz** – minden tartalomhoz megadható egy külső hivatkozás
+- ↗ **Megosztás** – megosztható mélylink minden tartalomhoz (`/?c=ID`), a
+  natív megosztóval vagy vágólapra másolással
 - 🛠️ **Admin panel** – jelszavas belépés, kép/videó feltöltés (drag & drop),
-  tartalmak elrejtése/törlése, valós idejű statisztikák
+  cím/link szerkesztés, tartalmak elrejtése/törlése, valós idejű statisztikák
 - 🗄️ **Két adatbázis-driver** – MySQL/MariaDB (éles, pl. cPanel) vagy SQLite
   (nulla-konfig helyi fejlesztéshez), a `DB_DRIVER` env változóval választható
 
@@ -80,12 +86,14 @@ létrehozását is tartalmazza.
 app.js             – belépési pont cPanel / Passenger számára (server.js-t tölti be)
 server.js          – Express szerver belépési pont (adatbázis init + indítás)
 paths.js           – feltöltési és (SQLite) adatmappa (env-ből felülírható)
+auth.js            – jelszó-hashelés (scrypt) és aláírt munkamenet-token (HMAC)
 db/
   index.js         – driver-választó (DB_DRIVER alapján)
   mysql.js         – MySQL/MariaDB implementáció (mysql2)
   sqlite.js        – SQLite implementáció (better-sqlite3)
 routes/
-  content.js       – publikus API (kártyák, szavazás, kedveltek)
+  auth.js          – felhasználói fiók API (regisztráció, belépés, /me)
+  content.js       – publikus API (kártyák, szavazás, kedveltek, kommentek)
   admin.js         – admin API (belépés, feltöltés, kezelés, statisztika)
 public/
   index.html/.css/.js  – swipe felület
@@ -97,9 +105,24 @@ uploads/           – feltöltött fájlok (gitből kizárva)
 
 Mindkét driver ugyanazt a sémát hozza létre automatikusan:
 
-- **content** – feltöltött tartalom (`title`, `type`, `filename`, `active`, …)
+- **content** – feltöltött tartalom (`title`, `link`, `type`, `filename`, `active`, …)
 - **votes** – szavazatok (`content_id`, `session_id`, `direction`) – sessionönként
   tartalmanként egy szavazat, felülírható (upsert)
+- **users** – felhasználói fiókok (`email`, `password_hash`, `display_name`,
+  `provider`, `provider_id`) – a `provider`/`provider_id` a későbbi Google-belépéshez
+- **comments** – hozzászólások (`content_id`, `user_id`, `body`)
+
+### Felhasználói fiókok és a jövőbeli Google-belépés
+
+A helyi regisztráció e-mail + jelszó alapú (a jelszó `scrypt`-tel hashelve, natív
+függőség nélkül). A munkamenet HMAC-aláírt token, ami a szerver újraindítását is
+túléli – ehhez érdemes beállítani egy állandó `AUTH_SECRET` env változót
+(egyébként a rendszer generál egyet és a `data/` mappába menti).
+
+A `users` tábla `provider` (`local`/`google`) és `provider_id` mezői már készen
+állnak a **Google OAuth** későbbi bekötésére: elég majd egy Google-callback
+útvonal, ami `provider='google'` fiókot hoz létre/keres, és ugyanazt a tokent
+adja vissza – a frontend és a komment-rendszer változtatás nélkül működik tovább.
 
 ## Megjegyzés éles használathoz
 

@@ -8,6 +8,7 @@ const cookieParser = require('cookie-parser');
 
 const { UPLOAD_DIR } = require('./paths');
 const data = require('./db');
+const authRoutes = require('./routes/auth');
 const contentRoutes = require('./routes/content');
 const adminRoutes = require('./routes/admin');
 
@@ -28,6 +29,7 @@ app.use(cookieParser());
 app.use('/uploads', express.static(UPLOAD_DIR, { maxAge: '7d' }));
 
 // API útvonalak
+app.use('/api/auth', authRoutes);
 app.use('/api', contentRoutes);
 app.use('/api/admin', adminRoutes);
 

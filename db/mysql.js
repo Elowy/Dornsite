@@ -7,6 +7,15 @@ const mysql = require('mysql2/promise');
 
 let pool;
 
+async function columnExists(table, col) {
+  const [rows] = await pool.query(
+    `SELECT 1 FROM information_schema.columns
+      WHERE table_schema = DATABASE() AND table_name = ? AND column_name = ?`,
+    [table, col]
+  );
+  return rows.length > 0;
+}
+
 async function init() {
   pool = mysql.createPool({
     host: process.env.DB_HOST || 'localhost',
@@ -22,12 +31,13 @@ async function init() {
   await pool.query(`
     CREATE TABLE IF NOT EXISTS content (
       id         INT AUTO_INCREMENT PRIMARY KEY,
-      title      VARCHAR(500) NOT NULL DEFAULT '',
-      type       VARCHAR(20)  NOT NULL DEFAULT 'image',
-      filename   VARCHAR(255) NOT NULL,
-      mime       VARCHAR(100) NOT NULL DEFAULT '',
-      active     TINYINT(1)   NOT NULL DEFAULT 1,
-      created_at DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP
+      title      VARCHAR(500)  NOT NULL DEFAULT '',
+      link       VARCHAR(1000) NOT NULL DEFAULT '',
+      type       VARCHAR(20)   NOT NULL DEFAULT 'image',
+      filename   VARCHAR(255)  NOT NULL,
+      mime       VARCHAR(100)  NOT NULL DEFAULT '',
+      active     TINYINT(1)    NOT NULL DEFAULT 1,
+      created_at DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
   `);
 
@@ -45,11 +55,46 @@ async function init() {
         REFERENCES content(id) ON DELETE CASCADE
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
   `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS users (
+      id            INT AUTO_INCREMENT PRIMARY KEY,
+      email         VARCHAR(255) NOT NULL UNIQUE,
+      password_hash VARCHAR(255) NOT NULL DEFAULT '',
+      display_name  VARCHAR(100) NOT NULL DEFAULT '',
+      provider      VARCHAR(20)  NOT NULL DEFAULT 'local',
+      provider_id   VARCHAR(255) NOT NULL DEFAULT '',
+      created_at    DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+  `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS comments (
+      id         INT AUTO_INCREMENT PRIMARY KEY,
+      content_id INT NOT NULL,
+      user_id    INT NOT NULL,
+      body       TEXT NOT NULL,
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      KEY idx_comments_content (content_id),
+      CONSTRAINT fk_comments_content FOREIGN KEY (content_id)
+        REFERENCES content(id) ON DELETE CASCADE,
+      CONSTRAINT fk_comments_user FOREIGN KEY (user_id)
+        REFERENCES users(id) ON DELETE CASCADE
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+  `);
+
+  // Migráció: régi adatbázisokban hiányozhat a link oszlop.
+  if (!(await columnExists('content', 'link'))) {
+    await pool.query(
+      `ALTER TABLE content ADD COLUMN link VARCHAR(1000) NOT NULL DEFAULT '' AFTER title`
+    );
+  }
 }
 
+// --- Tartalom (publikus) ---
 async function getCards(sessionId, limit) {
   const [rows] = await pool.query(
-    `SELECT id, title, type, filename, mime
+    `SELECT id, title, link, type, filename, mime
        FROM content
       WHERE active = 1
         AND id NOT IN (SELECT content_id FROM votes WHERE session_id = ?)
@@ -65,6 +110,14 @@ async function contentActiveExists(id) {
   return rows.length > 0;
 }
 
+async function getPublicContent(id) {
+  const [rows] = await pool.query(
+    'SELECT id, title, link, type, filename FROM content WHERE id = ? AND active = 1',
+    [id]
+  );
+  return rows[0] || null;
+}
+
 async function vote(contentId, sessionId, direction) {
   await pool.query(
     `INSERT INTO votes (content_id, session_id, direction)
@@ -76,7 +129,7 @@ async function vote(contentId, sessionId, direction) {
 
 async function getLikesAndStats(sessionId) {
   const [liked] = await pool.query(
-    `SELECT c.id, c.title, c.type, c.filename
+    `SELECT c.id, c.title, c.type, c.filename, c.link
        FROM votes v JOIN content c ON c.id = v.content_id
       WHERE v.session_id = ? AND v.direction = 'like'
       ORDER BY v.created_at DESC`,
@@ -93,14 +146,15 @@ async function getLikesAndStats(sessionId) {
   return { liked, stats };
 }
 
+// --- Tartalom (admin) ---
 async function addContent(items) {
   const conn = await pool.getConnection();
   try {
     await conn.beginTransaction();
     for (const it of items) {
       await conn.query(
-        `INSERT INTO content (title, type, filename, mime) VALUES (?, ?, ?, ?)`,
-        [it.title, it.type, it.filename, it.mime]
+        `INSERT INTO content (title, link, type, filename, mime) VALUES (?, ?, ?, ?, ?)`,
+        [it.title, it.link || '', it.type, it.filename, it.mime]
       );
     }
     await conn.commit();
@@ -115,15 +169,30 @@ async function addContent(items) {
 
 async function listContent() {
   const [rows] = await pool.query(
-    `SELECT c.id, c.title, c.type, c.filename, c.mime, c.active, c.created_at,
+    `SELECT c.id, c.title, c.link, c.type, c.filename, c.mime, c.active, c.created_at,
             COALESCE(SUM(v.direction = 'like'), 0)    AS likes,
-            COALESCE(SUM(v.direction = 'dislike'), 0) AS dislikes
+            COALESCE(SUM(v.direction = 'dislike'), 0) AS dislikes,
+            (SELECT COUNT(*) FROM comments cm WHERE cm.content_id = c.id) AS comments
        FROM content c
        LEFT JOIN votes v ON v.content_id = c.id
       GROUP BY c.id
       ORDER BY c.created_at DESC`
   );
-  return rows.map((r) => ({ ...r, likes: Number(r.likes), dislikes: Number(r.dislikes) }));
+  return rows.map((r) => ({
+    ...r,
+    likes: Number(r.likes),
+    dislikes: Number(r.dislikes),
+    comments: Number(r.comments),
+  }));
+}
+
+async function editContent(id, { title, link }) {
+  const [res] = await pool.query('UPDATE content SET title = ?, link = ? WHERE id = ?', [
+    title,
+    link || '',
+    id,
+  ]);
+  return res.affectedRows > 0;
 }
 
 async function getStats() {
@@ -132,6 +201,8 @@ async function getStats() {
   const [[{ n: totalVotes }]] = await pool.query('SELECT COUNT(*) AS n FROM votes');
   const [[{ n: totalLikes }]] = await pool.query("SELECT COUNT(*) AS n FROM votes WHERE direction = 'like'");
   const [[{ n: sessions }]] = await pool.query('SELECT COUNT(DISTINCT session_id) AS n FROM votes');
+  const [[{ n: totalUsers }]] = await pool.query('SELECT COUNT(*) AS n FROM users');
+  const [[{ n: totalComments }]] = await pool.query('SELECT COUNT(*) AS n FROM comments');
 
   const [topLiked] = await pool.query(
     `SELECT c.id, c.title, c.filename, c.type, COUNT(*) AS likes
@@ -147,6 +218,8 @@ async function getStats() {
     totalLikes: Number(totalLikes),
     totalDislikes: Number(totalVotes) - Number(totalLikes),
     sessions: Number(sessions),
+    totalUsers: Number(totalUsers),
+    totalComments: Number(totalComments),
     topLiked: topLiked.map((r) => ({ ...r, likes: Number(r.likes) })),
   };
 }
@@ -163,15 +236,80 @@ async function deleteContent(id) {
   return rows[0].filename;
 }
 
+// --- Felhasználók ---
+async function createUser({ email, passwordHash, displayName, provider = 'local', providerId = '' }) {
+  const [res] = await pool.query(
+    `INSERT INTO users (email, password_hash, display_name, provider, provider_id)
+     VALUES (?, ?, ?, ?, ?)`,
+    [email, passwordHash, displayName, provider, providerId]
+  );
+  return { id: res.insertId, email, displayName };
+}
+
+async function getUserByEmail(email) {
+  const [rows] = await pool.query('SELECT * FROM users WHERE email = ?', [email]);
+  return rows[0] || null;
+}
+
+async function getUserById(id) {
+  const [rows] = await pool.query(
+    'SELECT id, email, display_name, provider FROM users WHERE id = ?',
+    [id]
+  );
+  return rows[0] || null;
+}
+
+// --- Kommentek ---
+async function addComment(contentId, userId, body) {
+  const [res] = await pool.query(
+    `INSERT INTO comments (content_id, user_id, body) VALUES (?, ?, ?)`,
+    [contentId, userId, body]
+  );
+  const [rows] = await pool.query(
+    `SELECT cm.id, cm.body, cm.created_at, cm.user_id, u.display_name
+       FROM comments cm JOIN users u ON u.id = cm.user_id
+      WHERE cm.id = ?`,
+    [res.insertId]
+  );
+  return rows[0];
+}
+
+async function getComments(contentId) {
+  const [rows] = await pool.query(
+    `SELECT cm.id, cm.body, cm.created_at, cm.user_id, u.display_name
+       FROM comments cm JOIN users u ON u.id = cm.user_id
+      WHERE cm.content_id = ?
+      ORDER BY cm.created_at ASC`,
+    [contentId]
+  );
+  return rows;
+}
+
+async function deleteComment(id, userId, isAdmin) {
+  const [rows] = await pool.query('SELECT user_id FROM comments WHERE id = ?', [id]);
+  if (rows.length === 0) return false;
+  if (!isAdmin && rows[0].user_id !== userId) return false;
+  await pool.query('DELETE FROM comments WHERE id = ?', [id]);
+  return true;
+}
+
 module.exports = {
   init,
   getCards,
   contentActiveExists,
+  getPublicContent,
   vote,
   getLikesAndStats,
   addContent,
   listContent,
+  editContent,
   getStats,
   setActive,
   deleteContent,
+  createUser,
+  getUserByEmail,
+  getUserById,
+  addComment,
+  getComments,
+  deleteComment,
 };

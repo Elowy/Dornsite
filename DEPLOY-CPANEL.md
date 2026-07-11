@@ -77,6 +77,7 @@ Ugyanezen az oldalon, a **Environment variables** résznél add hozzá:
 | Név | Érték |
 |---|---|
 | `ADMIN_PASSWORD` | **egyedi, erős jelszó** (ne az alap `admin123`!) |
+| `AUTH_SECRET` | hosszú, véletlen szöveg (a felhasználói tokenek aláírásához) |
 | `NODE_ENV` | `production` |
 | `DB_DRIVER` | `mysql` |
 | `DB_HOST` | `localhost` (a legtöbb cPanel-en ez jó) |

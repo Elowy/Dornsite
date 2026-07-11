@@ -1,6 +1,6 @@
 'use strict';
 
-// --- Session azonosító (localStorage-ben tárolva) ---
+// ============ Session (anonim swipe-hoz) ============
 function getSession() {
   let s = localStorage.getItem('dornsite_session');
   if (!s) {
@@ -11,15 +11,51 @@ function getSession() {
 }
 const SESSION = getSession();
 
+// ============ Auth (felhasználói fiók) ============
+const Auth = {
+  token: localStorage.getItem('dornsite_user_token') || '',
+  user: null,
+  headers(extra = {}) {
+    return this.token ? { Authorization: `Bearer ${this.token}`, ...extra } : extra;
+  },
+  set(token, user) {
+    this.token = token;
+    this.user = user;
+    localStorage.setItem('dornsite_user_token', token);
+    updateAuthUI();
+  },
+  clear() {
+    this.token = '';
+    this.user = null;
+    localStorage.removeItem('dornsite_user_token');
+    updateAuthUI();
+  },
+  async refresh() {
+    if (!this.token) {
+      this.user = null;
+      updateAuthUI();
+      return;
+    }
+    try {
+      const res = await fetch('/api/auth/me', { headers: this.headers() });
+      if (res.ok) this.user = (await res.json()).user;
+      else this.clear();
+    } catch {
+      /* offline – token megmarad */
+    }
+    updateAuthUI();
+  },
+};
+
+// ============ DOM ============
 const deck = document.getElementById('deck');
 const emptyEl = document.getElementById('empty');
 const loadingEl = document.getElementById('loading');
 const likeCountEl = document.getElementById('likeCount');
 
-let queue = [];        // még be nem töltött kártyák
-let currentCard = null; // a legfelső DOM kártya
+let queue = [];
 
-// --- API hívások ---
+// ============ API ============
 async function fetchCards() {
   const res = await fetch(`/api/cards?session=${encodeURIComponent(SESSION)}&limit=15`);
   const data = await res.json();
@@ -43,21 +79,29 @@ async function refreshLikeCount() {
     const res = await fetch(`/api/likes?session=${encodeURIComponent(SESSION)}`);
     const data = await res.json();
     likeCountEl.textContent = data.stats?.like || 0;
-  } catch (e) { /* néma */ }
+  } catch (e) {}
 }
 
-// --- Kártya építése ---
+// ============ Kártya ============
+function escapeHtml(str) {
+  const div = document.createElement('div');
+  div.textContent = str == null ? '' : str;
+  return div.innerHTML;
+}
+
+function mediaHtml(item, extra = '') {
+  return item.type === 'video'
+    ? `<video src="${item.url}" muted loop playsinline autoplay ${extra}></video>`
+    : `<img src="${item.url}" alt="" draggable="false" ${extra}>`;
+}
+
 function buildCard(item) {
   const card = document.createElement('div');
   card.className = 'card';
   card.dataset.id = item.id;
-
-  const media = item.type === 'video'
-    ? `<video src="${item.url}" muted loop playsinline autoplay></video>`
-    : `<img src="${item.url}" alt="" draggable="false">`;
-
+  card._item = item;
   card.innerHTML = `
-    ${media}
+    ${mediaHtml(item)}
     <div class="badge like">TETSZIK</div>
     <div class="badge nope">NEM</div>
     ${item.title ? `<div class="card-caption">${escapeHtml(item.title)}</div>` : ''}
@@ -66,54 +110,40 @@ function buildCard(item) {
   return card;
 }
 
-function escapeHtml(str) {
-  const div = document.createElement('div');
-  div.textContent = str;
-  return div.innerHTML;
-}
-
-// --- Deck renderelése (max 3 kártya egyszerre a mélységhez) ---
 function renderDeck() {
   loadingEl.classList.add('hidden');
-
   if (queue.length === 0 && deck.children.length === 0) {
     emptyEl.classList.remove('hidden');
-    currentCard = null;
     return;
   }
   emptyEl.classList.add('hidden');
-
   while (deck.children.length < 3 && queue.length > 0) {
-    const item = queue.shift();
-    const card = buildCard(item);
-    // Új kártyák a stack aljára kerülnek
+    const card = buildCard(queue.shift());
     deck.insertBefore(card, deck.firstChild);
   }
   updateStackStyles();
-  currentCard = deck.lastElementChild;
 }
 
 function updateStackStyles() {
-  const cards = Array.from(deck.children); // [alsó ... felső]
+  const cards = Array.from(deck.children);
   const n = cards.length;
   cards.forEach((c, i) => {
-    const depth = n - 1 - i; // 0 = legfelső
+    const depth = n - 1 - i;
     c.style.transform = `translateY(${depth * 10}px) scale(${1 - depth * 0.04})`;
     c.style.zIndex = i;
     c.style.opacity = depth > 2 ? 0 : 1;
   });
 }
 
-// --- Drag & swipe logika ---
+// ============ Drag & swipe ============
 function attachDrag(card) {
-  let startX = 0, startY = 0, dx = 0, dy = 0, dragging = false;
-
+  let startX = 0, startY = 0, dx = 0, dy = 0, dragging = false, moved = false;
   const likeBadge = () => card.querySelector('.badge.like');
   const nopeBadge = () => card.querySelector('.badge.nope');
 
   function onDown(e) {
-    if (card !== deck.lastElementChild) return; // csak a legfelső mozgatható
-    dragging = true;
+    if (card !== deck.lastElementChild) return;
+    dragging = true; moved = false;
     const p = point(e);
     startX = p.x; startY = p.y;
     card.style.transition = 'none';
@@ -121,10 +151,9 @@ function attachDrag(card) {
   function onMove(e) {
     if (!dragging) return;
     const p = point(e);
-    dx = p.x - startX;
-    dy = p.y - startY;
-    const rot = dx / 18;
-    card.style.transform = `translate(${dx}px, ${dy}px) rotate(${rot}deg)`;
+    dx = p.x - startX; dy = p.y - startY;
+    if (Math.abs(dx) > 5 || Math.abs(dy) > 5) moved = true;
+    card.style.transform = `translate(${dx}px, ${dy}px) rotate(${dx / 18}deg)`;
     const ratio = Math.min(Math.abs(dx) / 120, 1);
     if (dx > 0) { likeBadge().style.opacity = ratio; nopeBadge().style.opacity = 0; }
     else { nopeBadge().style.opacity = ratio; likeBadge().style.opacity = 0; }
@@ -133,10 +162,8 @@ function attachDrag(card) {
     if (!dragging) return;
     dragging = false;
     card.style.transition = 'transform 0.3s ease';
-    const threshold = 110;
-    if (dx > threshold) return flyOut(card, 'like');
-    if (dx < -threshold) return flyOut(card, 'dislike');
-    // vissza a helyére
+    if (dx > 110) return flyOut(card, 'like');
+    if (dx < -110) return flyOut(card, 'dislike');
     card.style.transform = '';
     likeBadge().style.opacity = 0;
     nopeBadge().style.opacity = 0;
@@ -150,6 +177,8 @@ function attachDrag(card) {
   card.addEventListener('touchstart', onDown, { passive: true });
   card.addEventListener('touchmove', onMove, { passive: true });
   card.addEventListener('touchend', onUp);
+  // Koppintás (mozgatás nélkül) → részletek
+  card.addEventListener('click', () => { if (!moved) openDetail(card._item.id); });
 }
 
 function point(e) {
@@ -158,17 +187,12 @@ function point(e) {
   return { x: e.clientX, y: e.clientY };
 }
 
-// --- Kártya kirepítése + szavazat ---
 function flyOut(card, direction) {
   const id = parseInt(card.dataset.id, 10);
   const dir = direction === 'like' ? 1 : -1;
   card.style.transition = 'transform 0.4s ease';
   card.style.transform = `translate(${dir * window.innerWidth}px, -40px) rotate(${dir * 30}deg)`;
-
-  sendVote(id, direction).then(() => {
-    if (direction === 'like') refreshLikeCount();
-  });
-
+  sendVote(id, direction).then(() => { if (direction === 'like') refreshLikeCount(); });
   setTimeout(() => {
     card.remove();
     if (queue.length < 3) topUp();
@@ -176,27 +200,22 @@ function flyOut(card, direction) {
   }, 320);
 }
 
-// A programozott gombokhoz
 function swipeTop(direction) {
   const top = deck.lastElementChild;
   if (top) flyOut(top, direction);
 }
 
-// --- Utántöltés, ha fogy a sor ---
 let loading = false;
 async function topUp() {
   if (loading) return;
   loading = true;
   const more = await fetchCards();
-  // duplikátumok kiszűrése (a már a deckben lévők)
   const inDeck = new Set(Array.from(deck.children).map((c) => c.dataset.id));
-  for (const item of more) {
-    if (!inDeck.has(String(item.id))) queue.push(item);
-  }
+  for (const item of more) if (!inDeck.has(String(item.id))) queue.push(item);
   loading = false;
 }
 
-// --- Kedveltek panel ---
+// ============ Kedveltek panel ============
 const likesPanel = document.getElementById('likesPanel');
 const likesGrid = document.getElementById('likesGrid');
 const likesEmpty = document.getElementById('likesEmpty');
@@ -213,29 +232,264 @@ async function openLikes() {
     for (const item of liked) {
       const tile = document.createElement('div');
       tile.className = 'tile';
-      tile.innerHTML = item.type === 'video'
-        ? `<video src="${item.url}" muted loop></video>`
-        : `<img src="${item.url}" alt="">`;
+      tile.innerHTML = mediaHtml(item);
+      tile.addEventListener('click', () => openDetail(item.id));
       likesGrid.appendChild(tile);
     }
   }
   likesPanel.classList.remove('hidden');
 }
 
-// --- Események ---
+// ============ Részlet + megosztás + kommentek ============
+const detailPanel = document.getElementById('detailPanel');
+const detailTitle = document.getElementById('detailTitle');
+const detailMedia = document.getElementById('detailMedia');
+const detailLink = document.getElementById('detailLink');
+const commentsList = document.getElementById('commentsList');
+const commentCount = document.getElementById('commentCount');
+const commentForm = document.getElementById('commentForm');
+const commentInput = document.getElementById('commentInput');
+const commentLoginHint = document.getElementById('commentLoginHint');
+let currentDetailId = null;
+
+async function openDetail(id) {
+  currentDetailId = id;
+  detailMedia.innerHTML = '';
+  detailTitle.textContent = 'Betöltés…';
+  detailLink.classList.add('hidden');
+  commentsList.innerHTML = '';
+  commentCount.textContent = '0';
+  detailPanel.classList.remove('hidden');
+
+  try {
+    const res = await fetch(`/api/content/${id}`);
+    if (!res.ok) { detailTitle.textContent = 'A tartalom nem található'; return; }
+    const { content } = await res.json();
+    detailTitle.textContent = content.title || 'Tartalom';
+    detailMedia.innerHTML = mediaHtml(content);
+    if (content.link) {
+      detailLink.href = content.link;
+      detailLink.classList.remove('hidden');
+    }
+  } catch {
+    detailTitle.textContent = 'Hiba a betöltéskor';
+  }
+
+  updateCommentUI();
+  loadComments(id);
+}
+
+function closeDetail() {
+  detailPanel.classList.add('hidden');
+  currentDetailId = null;
+  // deep-link paraméter eltávolítása a címsorból
+  if (location.search) history.replaceState(null, '', location.pathname);
+}
+
+async function loadComments(id) {
+  try {
+    const res = await fetch(`/api/content/${id}/comments`);
+    const { comments } = await res.json();
+    commentCount.textContent = comments.length;
+    commentsList.innerHTML = comments.length
+      ? comments.map(commentHtml).join('')
+      : '<p class="comment-hint">Legyél te az első, aki hozzászól!</p>';
+    commentsList.querySelectorAll('[data-del]').forEach((b) =>
+      b.addEventListener('click', () => deleteComment(b.dataset.del))
+    );
+  } catch {
+    commentsList.innerHTML = '<p class="comment-hint">A kommentek nem tölthetők be.</p>';
+  }
+}
+
+function commentHtml(c) {
+  const mine = Auth.user && Auth.user.id === c.user_id;
+  const when = String(c.created_at || '').replace('T', ' ').slice(0, 16);
+  return `
+    <div class="comment">
+      <div class="comment-head">
+        <span class="comment-author">${escapeHtml(c.display_name)}</span>
+        <span class="comment-date">${escapeHtml(when)}</span>
+        ${mine ? `<button class="comment-del" data-del="${c.id}" title="Törlés">🗑</button>` : ''}
+      </div>
+      <div class="comment-body">${escapeHtml(c.body)}</div>
+    </div>`;
+}
+
+function updateCommentUI() {
+  if (Auth.user) {
+    commentForm.classList.remove('hidden');
+    commentLoginHint.classList.add('hidden');
+  } else {
+    commentForm.classList.add('hidden');
+    commentLoginHint.classList.remove('hidden');
+  }
+}
+
+commentForm.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const body = commentInput.value.trim();
+  if (!body || !currentDetailId) return;
+  try {
+    const res = await fetch(`/api/content/${currentDetailId}/comments`, {
+      method: 'POST',
+      headers: Auth.headers({ 'Content-Type': 'application/json' }),
+      body: JSON.stringify({ body }),
+    });
+    if (res.ok) {
+      commentInput.value = '';
+      loadComments(currentDetailId);
+    } else if (res.status === 401) {
+      Auth.clear();
+      openAuth();
+    } else {
+      const err = await res.json().catch(() => ({}));
+      toast(err.error || 'Nem sikerült elküldeni');
+    }
+  } catch {
+    toast('Hálózati hiba');
+  }
+});
+
+async function deleteComment(id) {
+  if (!confirm('Törlöd a kommentet?')) return;
+  const res = await fetch(`/api/comments/${id}`, { method: 'DELETE', headers: Auth.headers() });
+  if (res.ok) loadComments(currentDetailId);
+  else toast('Nem törölhető');
+}
+
+// Megosztás
+document.getElementById('shareBtn').addEventListener('click', async () => {
+  if (!currentDetailId) return;
+  const url = `${location.origin}/?c=${currentDetailId}`;
+  const title = detailTitle.textContent;
+  if (navigator.share) {
+    try { await navigator.share({ title: 'Dornsite', text: title, url }); return; } catch {}
+  }
+  try {
+    await navigator.clipboard.writeText(url);
+    toast('Link a vágólapra másolva 📋');
+  } catch {
+    prompt('Másold ki a linket:', url);
+  }
+});
+
+// ============ Auth UI ============
+const authModal = document.getElementById('authModal');
+const authBtn = document.getElementById('authBtn');
+
+function updateAuthUI() {
+  if (Auth.user) {
+    authBtn.textContent = `👤 ${Auth.user.displayName || 'Profil'}`;
+    authBtn.title = 'Kijelentkezés';
+  } else {
+    authBtn.textContent = 'Belépés';
+    authBtn.title = 'Belépés / regisztráció';
+  }
+  updateCommentUI();
+  // a kommentek újrarajzolása a saját-törlés gomb miatt
+  if (currentDetailId && !detailPanel.classList.contains('hidden')) loadComments(currentDetailId);
+}
+
+function openAuth() { authModal.classList.remove('hidden'); }
+function closeAuth() { authModal.classList.add('hidden'); }
+
+authBtn.addEventListener('click', () => {
+  if (Auth.user) {
+    if (confirm('Kijelentkezel?')) Auth.clear();
+  } else {
+    openAuth();
+  }
+});
+document.getElementById('closeAuth').addEventListener('click', closeAuth);
+authModal.addEventListener('click', (e) => { if (e.target === authModal) closeAuth(); });
+
+document.querySelectorAll('.auth-tab').forEach((tab) =>
+  tab.addEventListener('click', () => {
+    document.querySelectorAll('.auth-tab').forEach((t) => t.classList.remove('active'));
+    tab.classList.add('active');
+    const isLogin = tab.dataset.tab === 'login';
+    document.getElementById('loginForm').classList.toggle('hidden', !isLogin);
+    document.getElementById('registerForm').classList.toggle('hidden', isLogin);
+  })
+);
+
+document.getElementById('loginForm').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const errEl = document.getElementById('loginError');
+  errEl.classList.add('hidden');
+  try {
+    const res = await fetch('/api/auth/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        email: document.getElementById('loginEmail').value,
+        password: document.getElementById('loginPassword').value,
+      }),
+    });
+    const data = await res.json();
+    if (res.ok) { Auth.set(data.token, data.user); closeAuth(); toast('Sikeres belépés 👋'); }
+    else showAuthError(errEl, data.error);
+  } catch { showAuthError(errEl, 'Hálózati hiba'); }
+});
+
+document.getElementById('registerForm').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const errEl = document.getElementById('registerError');
+  errEl.classList.add('hidden');
+  try {
+    const res = await fetch('/api/auth/register', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        displayName: document.getElementById('regName').value,
+        email: document.getElementById('regEmail').value,
+        password: document.getElementById('regPassword').value,
+      }),
+    });
+    const data = await res.json();
+    if (res.ok) { Auth.set(data.token, data.user); closeAuth(); toast('Fiók létrehozva 🎉'); }
+    else showAuthError(errEl, data.error);
+  } catch { showAuthError(errEl, 'Hálózati hiba'); }
+});
+
+function showAuthError(el, msg) {
+  el.textContent = msg || 'Hiba történt';
+  el.classList.remove('hidden');
+}
+
+document.getElementById('commentLoginBtn').addEventListener('click', openAuth);
+
+// ============ Toast ============
+let toastTimer;
+function toast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.remove('hidden');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => t.classList.add('hidden'), 2500);
+}
+
+// ============ Események ============
 document.getElementById('likeBtn').addEventListener('click', () => swipeTop('like'));
 document.getElementById('nopeBtn').addEventListener('click', () => swipeTop('dislike'));
+document.getElementById('infoBtn').addEventListener('click', () => {
+  const top = deck.lastElementChild;
+  if (top) openDetail(top._item.id);
+});
 document.getElementById('restartBtn').addEventListener('click', init);
 document.getElementById('likesBtn').addEventListener('click', openLikes);
 document.getElementById('closeLikes').addEventListener('click', () => likesPanel.classList.add('hidden'));
+document.getElementById('closeDetail').addEventListener('click', closeDetail);
 
-// Billentyűzet támogatás
 window.addEventListener('keydown', (e) => {
+  if (!authModal.classList.contains('hidden')) return;
+  if (!detailPanel.classList.contains('hidden')) { if (e.key === 'Escape') closeDetail(); return; }
   if (e.key === 'ArrowRight') swipeTop('like');
   if (e.key === 'ArrowLeft') swipeTop('dislike');
 });
 
-// --- Indítás ---
+// ============ Indítás ============
 async function init() {
   emptyEl.classList.add('hidden');
   loadingEl.classList.remove('hidden');
@@ -247,4 +501,11 @@ async function init() {
   refreshLikeCount();
 }
 
-init();
+(async function start() {
+  await Auth.refresh();
+  await init();
+  // Megosztott mélylink: ?c=ID → nyisd meg a részletet
+  const params = new URLSearchParams(location.search);
+  const cid = params.get('c');
+  if (cid) openDetail(parseInt(cid, 10));
+})();
