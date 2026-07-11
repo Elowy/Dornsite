@@ -6,10 +6,10 @@ const crypto = require('crypto');
 const express = require('express');
 const multer = require('multer');
 const db = require('../db');
+const { UPLOAD_DIR } = require('../paths');
 
 const router = express.Router();
 
-const UPLOAD_DIR = path.join(__dirname, '..', 'uploads');
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'admin123';
 
 // --- Egyszerű, tokenes admin munkamenet ---

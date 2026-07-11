@@ -53,10 +53,20 @@ felülírható az `ADMIN_PASSWORD` változóval).
 3. Húzd **jobbra** ami tetszik, **balra** amit nem, vagy használd a gombokat /
    nyíl billentyűket.
 
+## Telepítés cPanel-alapú tárhelyre
+
+A cPanel-es (Node.js-t támogató) tárhelyre való telepítés lépésről lépésre a
+[**DEPLOY-CPANEL.md**](DEPLOY-CPANEL.md) fájlban található. Röviden: a Phusion
+Passenger futtatja az appot, az indítófájl az `app.js`, és a **Setup Node.js
+App** felületen kell beállítani a Node-verziót, a környezeti változókat
+(`ADMIN_PASSWORD`, `NODE_ENV`) és lefuttatni az `npm install`-t.
+
 ## Projekt szerkezete
 
 ```
+app.js             – belépési pont cPanel / Passenger számára (server.js-t tölti be)
 server.js          – Express szerver belépési pont
+paths.js           – adat- és feltöltési mappák (env-ből felülírható)
 db.js              – SQLite kapcsolat és séma
 routes/
   content.js       – publikus API (kártyák, szavazás, kedveltek)
