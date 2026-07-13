@@ -17,6 +17,8 @@ tárolódnak.
 - 👤 **Felhasználói fiókok** – helyi regisztráció/belépés (e-mail + jelszó) és
   **Google-bejelentkezés** (opcionális, a `GOOGLE_CLIENT_ID` beállításával aktív)
 - 💬 **Kommentek** – a bejelentkezett felhasználók hozzászólhatnak a tartalmakhoz
+- 🏷️ **Címkék és szűrés** – a tartalmakhoz címkék rendelhetők, a főoldalon
+  címke-sávval szűrhető a swipe-olható tartalom
 - 🔗 **Link a tartalomhoz** – minden tartalomhoz megadható egy külső hivatkozás
 - ↗ **Megosztás** – megosztható mélylink minden tartalomhoz (`/?c=ID`), a
   natív megosztóval vagy vágólapra másolással
@@ -111,6 +113,7 @@ Mindkét driver ugyanazt a sémát hozza létre automatikusan:
 - **users** – felhasználói fiókok (`email`, `password_hash`, `display_name`,
   `provider`, `provider_id`) – a `provider`/`provider_id` a későbbi Google-belépéshez
 - **comments** – hozzászólások (`content_id`, `user_id`, `body`)
+- **tags** / **content_tags** – címkék és a tartalmakhoz rendelésük (many-to-many)
 
 ### Felhasználói fiókok és a jövőbeli Google-belépés
 

@@ -58,10 +58,24 @@ async function init() {
       FOREIGN KEY (user_id)    REFERENCES users(id)   ON DELETE CASCADE
     );
 
+    CREATE TABLE IF NOT EXISTS tags (
+      id   INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL UNIQUE
+    );
+
+    CREATE TABLE IF NOT EXISTS content_tags (
+      content_id INTEGER NOT NULL,
+      tag_id     INTEGER NOT NULL,
+      PRIMARY KEY (content_id, tag_id),
+      FOREIGN KEY (content_id) REFERENCES content(id) ON DELETE CASCADE,
+      FOREIGN KEY (tag_id)     REFERENCES tags(id)    ON DELETE CASCADE
+    );
+
     CREATE INDEX IF NOT EXISTS idx_votes_content ON votes(content_id);
     CREATE INDEX IF NOT EXISTS idx_votes_session ON votes(session_id);
     CREATE UNIQUE INDEX IF NOT EXISTS idx_votes_unique ON votes(content_id, session_id);
     CREATE INDEX IF NOT EXISTS idx_comments_content ON comments(content_id);
+    CREATE INDEX IF NOT EXISTS idx_content_tags_tag ON content_tags(tag_id);
   `);
 
   // Migráció: régi adatbázisokban hiányozhat a link oszlop.
@@ -71,18 +85,82 @@ async function init() {
   }
 }
 
-// --- Tartalom (publikus) ---
-async function getCards(sessionId, limit) {
+// --- Címkék (tag-ek) segédfüggvényei ---
+function normalizeTags(list) {
+  const seen = new Set();
+  const out = [];
+  for (const raw of list || []) {
+    const name = String(raw).trim().toLowerCase();
+    if (!name || seen.has(name)) continue;
+    seen.add(name);
+    out.push(name);
+  }
+  return out.slice(0, 20);
+}
+
+// Tranzakció nélkül (hívható egy külső tranzakción belül is)
+function setTagsRaw(contentId, tagNames) {
+  const names = normalizeTags(tagNames);
+  db.prepare('DELETE FROM content_tags WHERE content_id = ?').run(contentId);
+  const insTag = db.prepare('INSERT OR IGNORE INTO tags (name) VALUES (?)');
+  const getTag = db.prepare('SELECT id FROM tags WHERE name = ?');
+  const link = db.prepare('INSERT OR IGNORE INTO content_tags (content_id, tag_id) VALUES (?, ?)');
+  for (const name of names) {
+    insTag.run(name);
+    link.run(contentId, getTag.get(name).id);
+  }
+}
+
+function tagsFor(contentId) {
   return db
     .prepare(
-      `SELECT id, title, link, type, filename, mime
-         FROM content
-        WHERE active = 1
-          AND id NOT IN (SELECT content_id FROM votes WHERE session_id = ?)
-        ORDER BY RANDOM()
-        LIMIT ?`
+      `SELECT t.name FROM content_tags ct JOIN tags t ON t.id = ct.tag_id
+        WHERE ct.content_id = ? ORDER BY t.name`
     )
-    .all(sessionId, limit);
+    .all(contentId)
+    .map((r) => r.name);
+}
+
+async function listTags() {
+  return db
+    .prepare(
+      `SELECT t.name, COUNT(c.id) AS count
+         FROM tags t
+         LEFT JOIN content_tags ct ON ct.tag_id = t.id
+         LEFT JOIN content c ON c.id = ct.content_id AND c.active = 1
+        GROUP BY t.id
+        HAVING count > 0
+        ORDER BY count DESC, t.name`
+    )
+    .all()
+    .map((r) => ({ name: r.name, count: Number(r.count) }));
+}
+
+// --- Tartalom (publikus) ---
+async function getCards(sessionId, limit, tag) {
+  const rows = tag
+    ? db
+        .prepare(
+          `SELECT c.id, c.title, c.link, c.type, c.filename, c.mime
+             FROM content c
+             JOIN content_tags ct ON ct.content_id = c.id
+             JOIN tags t ON t.id = ct.tag_id
+            WHERE c.active = 1 AND t.name = ?
+              AND c.id NOT IN (SELECT content_id FROM votes WHERE session_id = ?)
+            ORDER BY RANDOM() LIMIT ?`
+        )
+        .all(String(tag).toLowerCase(), sessionId, limit)
+    : db
+        .prepare(
+          `SELECT id, title, link, type, filename, mime
+             FROM content
+            WHERE active = 1
+              AND id NOT IN (SELECT content_id FROM votes WHERE session_id = ?)
+            ORDER BY RANDOM()
+            LIMIT ?`
+        )
+        .all(sessionId, limit);
+  return rows;
 }
 
 async function contentActiveExists(id) {
@@ -90,11 +168,12 @@ async function contentActiveExists(id) {
 }
 
 async function getPublicContent(id) {
-  return (
-    db
-      .prepare(`SELECT id, title, link, type, filename FROM content WHERE id = ? AND active = 1`)
-      .get(id) || null
-  );
+  const row = db
+    .prepare(`SELECT id, title, link, type, filename FROM content WHERE id = ? AND active = 1`)
+    .get(id);
+  if (!row) return null;
+  row.tags = tagsFor(id);
+  return row;
 }
 
 async function vote(contentId, sessionId, direction) {
@@ -131,7 +210,10 @@ async function addContent(items) {
     `INSERT INTO content (title, link, type, filename, mime) VALUES (?, ?, ?, ?, ?)`
   );
   const tx = db.transaction((list) => {
-    for (const it of list) insert.run(it.title, it.link || '', it.type, it.filename, it.mime);
+    for (const it of list) {
+      const info = insert.run(it.title, it.link || '', it.type, it.filename, it.mime);
+      setTagsRaw(info.lastInsertRowid, it.tags);
+    }
   });
   tx(items);
   return items.length;
@@ -155,14 +237,17 @@ async function listContent() {
       likes: Number(r.likes),
       dislikes: Number(r.dislikes),
       comments: Number(r.comments),
+      tags: tagsFor(r.id),
     }));
 }
 
-async function editContent(id, { title, link }) {
+async function editContent(id, { title, link, tags }) {
   const info = db
     .prepare('UPDATE content SET title = ?, link = ? WHERE id = ?')
     .run(title, link || '', id);
-  return info.changes > 0;
+  if (info.changes === 0) return false;
+  if (tags !== undefined) setTagsRaw(id, tags);
+  return true;
 }
 
 async function getStats() {
@@ -273,6 +358,7 @@ async function deleteComment(id, userId, isAdmin) {
 module.exports = {
   init,
   getCards,
+  listTags,
   contentActiveExists,
   getPublicContent,
   vote,
