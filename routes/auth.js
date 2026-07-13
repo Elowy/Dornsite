@@ -1,12 +1,17 @@
 'use strict';
 
 const express = require('express');
+const { OAuth2Client } = require('google-auth-library');
 const data = require('../db');
 const { hashPassword, verifyPassword, signToken, verifyToken } = require('../auth');
 
 const router = express.Router();
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+// Google bejelentkezés csak akkor aktív, ha be van állítva a kliens-azonosító.
+const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID || '';
+const googleClient = GOOGLE_CLIENT_ID ? new OAuth2Client(GOOGLE_CLIENT_ID) : null;
 
 // Bejelentkezett felhasználó kinyerése a tokenből (opcionális)
 async function currentUser(req) {
@@ -29,6 +34,61 @@ async function requireUser(req, res, next) {
     next(err);
   }
 }
+
+// --- Kliens konfiguráció (a frontend ebből tudja, aktív-e a Google belépés) ---
+router.get('/config', (req, res) => {
+  res.json({ google: !!googleClient, googleClientId: GOOGLE_CLIENT_ID });
+});
+
+// --- Google bejelentkezés (ID token ellenőrzése) ---
+router.post('/google', async (req, res, next) => {
+  try {
+    if (!googleClient) {
+      return res.status(400).json({ error: 'A Google belépés nincs beállítva' });
+    }
+    const credential = String(req.body.credential || '');
+    if (!credential) return res.status(400).json({ error: 'Hiányzó Google token' });
+
+    let payload;
+    try {
+      const ticket = await googleClient.verifyIdToken({
+        idToken: credential,
+        audience: GOOGLE_CLIENT_ID,
+      });
+      payload = ticket.getPayload();
+    } catch {
+      return res.status(401).json({ error: 'Érvénytelen Google token' });
+    }
+
+    const sub = payload.sub;
+    const email = String(payload.email || '').toLowerCase();
+    const displayName = payload.name || (email ? email.split('@')[0] : 'Google felhasználó');
+
+    // 1) meglévő Google-fiók  2) azonos e-mailű meglévő fiók  3) új fiók
+    let user =
+      (await data.getUserByProvider('google', sub)) ||
+      (email ? await data.getUserByEmail(email) : null);
+
+    if (!user) {
+      user = await data.createUser({
+        email,
+        passwordHash: '',
+        displayName,
+        provider: 'google',
+        providerId: sub,
+      });
+      user = { id: user.id, email, display_name: displayName };
+    }
+
+    const token = signToken({ uid: user.id });
+    res.json({
+      token,
+      user: { id: user.id, email: user.email, displayName: user.display_name || displayName },
+    });
+  } catch (err) {
+    next(err);
+  }
+});
 
 // --- Regisztráció (helyi fiók) ---
 router.post('/register', async (req, res, next) => {

@@ -230,6 +230,13 @@ async function getUserById(id) {
   );
 }
 
+async function getUserByProvider(provider, providerId) {
+  return (
+    db.prepare('SELECT * FROM users WHERE provider = ? AND provider_id = ?').get(provider, providerId) ||
+    null
+  );
+}
+
 // --- Kommentek ---
 async function addComment(contentId, userId, body) {
   const info = db
@@ -279,6 +286,7 @@ module.exports = {
   createUser,
   getUserByEmail,
   getUserById,
+  getUserByProvider,
   addComment,
   getComments,
   deleteComment,
