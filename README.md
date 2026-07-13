@@ -16,6 +16,10 @@ tárolódnak.
 - ❤️ **Kedveltek** – a jobbra húzott tartalmak külön panelen visszanézhetők
 - 👤 **Felhasználói fiókok** – helyi regisztráció/belépés (e-mail + jelszó) és
   **Google-bejelentkezés** (opcionális, a `GOOGLE_CLIENT_ID` beállításával aktív)
+- 🔥 **„Match" élmény** – jobbra húzáskor ünneplő felugró; népszerű (sokak által
+  kedvelt) tartalomnál külön „Match!" élmény
+- 🔔 **Értesítések** – bejelentkezett felhasználók harang ikonnal értesülnek, ha
+  valaki hozzászól egy tartalomhoz, amihez ők is kommenteltek
 - 💬 **Kommentek** – a bejelentkezett felhasználók hozzászólhatnak a tartalmakhoz
 - 🏷️ **Címkék és szűrés** – a tartalmakhoz címkék rendelhetők, a főoldalon
   címke-sávval szűrhető a swipe-olható tartalom
@@ -122,6 +126,7 @@ Mindkét driver ugyanazt a sémát hozza létre automatikusan:
   `provider`, `provider_id`) – a `provider`/`provider_id` a későbbi Google-belépéshez
 - **comments** – hozzászólások (`content_id`, `user_id`, `body`)
 - **tags** / **content_tags** – címkék és a tartalmakhoz rendelésük (many-to-many)
+- **notifications** – felhasználói értesítések (`user_id`, `type`, `content_id`, …)
 
 ### Felhasználói fiókok és a jövőbeli Google-belépés
 

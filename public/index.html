@@ -16,6 +16,7 @@
   <header class="topbar">
     <div class="logo">🔥 Dornsite</div>
     <div class="topbar-actions">
+      <button id="notifBtn" class="ghost-btn notif-btn hidden" title="Értesítések">🔔<span id="notifBadge" class="notif-badge hidden">0</span></button>
       <button id="likesBtn" class="ghost-btn" title="Kedveltek">❤️ <span id="likeCount">0</span></button>
       <button id="authBtn" class="ghost-btn">Belépés</button>
     </div>
@@ -109,6 +110,25 @@
       </div>
 
       <p id="authNote" class="auth-note">Hamarosan Google fiókkal is be lehet majd lépni.</p>
+    </div>
+  </div>
+
+  <!-- Értesítések panel -->
+  <div id="notifPanel" class="panel hidden">
+    <div class="panel-head">
+      <h2>Értesítések</h2>
+      <button id="closeNotif" class="ghost-btn">✕</button>
+    </div>
+    <div id="notifList" class="notif-list"></div>
+    <p id="notifEmpty" class="notif-empty hidden">Nincs értesítésed.</p>
+  </div>
+
+  <!-- "Match" felugró -->
+  <div id="matchOverlay" class="match-overlay hidden">
+    <div class="match-box">
+      <div id="matchEmoji" class="match-emoji">❤️</div>
+      <div id="matchTitle" class="match-title">Tetszik!</div>
+      <div id="matchSub" class="match-sub"></div>
     </div>
   </div>
 

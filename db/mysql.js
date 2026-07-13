@@ -101,6 +101,22 @@ async function init() {
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
   `);
 
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS notifications (
+      id         INT AUTO_INCREMENT PRIMARY KEY,
+      user_id    INT NOT NULL,
+      type       VARCHAR(20)  NOT NULL DEFAULT 'comment',
+      content_id INT NULL,
+      actor_name VARCHAR(100) NOT NULL DEFAULT '',
+      body       VARCHAR(500) NOT NULL DEFAULT '',
+      is_read    TINYINT(1)   NOT NULL DEFAULT 0,
+      created_at DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      KEY idx_notif_user (user_id),
+      CONSTRAINT fk_notif_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+      CONSTRAINT fk_notif_content FOREIGN KEY (content_id) REFERENCES content(id) ON DELETE CASCADE
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+  `);
+
   // Migráció: régi adatbázisokban hiányozhat a link oszlop.
   if (!(await columnExists('content', 'link'))) {
     await pool.query(
@@ -394,6 +410,47 @@ async function deleteComment(id, userId, isAdmin) {
   return true;
 }
 
+// --- "Match" jelzés: egy tartalom hány like-ot kapott ---
+async function getLikeCount(contentId) {
+  const [[{ n }]] = await pool.query(
+    "SELECT COUNT(*) AS n FROM votes WHERE content_id = ? AND direction = 'like'",
+    [contentId]
+  );
+  return Number(n);
+}
+
+// --- Értesítések ---
+async function addCommentNotifications(contentId, actorUserId, actorName) {
+  const [[row]] = await pool.query('SELECT title FROM content WHERE id = ?', [contentId]);
+  const title = (row && row.title) || '';
+  await pool.query(
+    `INSERT INTO notifications (user_id, type, content_id, actor_name, body)
+     SELECT DISTINCT c.user_id, 'comment', ?, ?, ?
+       FROM comments c
+      WHERE c.content_id = ? AND c.user_id <> ?`,
+    [contentId, actorName, title, contentId, actorUserId]
+  );
+}
+
+async function listNotifications(userId, limit = 30) {
+  const [rows] = await pool.query(
+    `SELECT id, type, content_id, actor_name, body, is_read, created_at
+       FROM notifications WHERE user_id = ?
+      ORDER BY created_at DESC, id DESC LIMIT ?`,
+    [userId, Number(limit)]
+  );
+  const items = rows.map((r) => ({ ...r, is_read: !!r.is_read }));
+  const [[{ n: unread }]] = await pool.query(
+    'SELECT COUNT(*) AS n FROM notifications WHERE user_id = ? AND is_read = 0',
+    [userId]
+  );
+  return { items, unread: Number(unread) };
+}
+
+async function markNotificationsRead(userId) {
+  await pool.query('UPDATE notifications SET is_read = 1 WHERE user_id = ? AND is_read = 0', [userId]);
+}
+
 module.exports = {
   init,
   getCards,
@@ -401,6 +458,7 @@ module.exports = {
   contentActiveExists,
   getPublicContent,
   vote,
+  getLikeCount,
   getLikesAndStats,
   addContent,
   listContent,
@@ -415,4 +473,7 @@ module.exports = {
   addComment,
   getComments,
   deleteComment,
+  addCommentNotifications,
+  listNotifications,
+  markNotificationsRead,
 };

@@ -6,6 +6,9 @@ const { requireUser } = require('./auth');
 
 const router = express.Router();
 
+// Hány like fölött számít egy tartalom "népszerűnek" (match élmény)
+const POPULAR_THRESHOLD = Number(process.env.MATCH_POPULAR_THRESHOLD) || 3;
+
 // Véletlenszerű kártyák lekérése, amikre az adott session még nem szavazott
 router.get('/cards', async (req, res, next) => {
   try {
@@ -74,7 +77,14 @@ router.post('/vote', async (req, res, next) => {
     }
 
     await data.vote(contentId, sessionId, direction);
-    res.json({ ok: true });
+
+    // "Match" jelzés: like esetén add vissza a népszerűséget
+    let match = null;
+    if (direction === 'like') {
+      const likes = await data.getLikeCount(contentId);
+      match = { likes, popular: likes >= POPULAR_THRESHOLD };
+    }
+    res.json({ ok: true, match });
   } catch (err) {
     next(err);
   }
@@ -125,6 +135,8 @@ router.post('/content/:id/comments', requireUser, async (req, res, next) => {
     }
 
     const comment = await data.addComment(id, req.user.id, body);
+    // Értesítés a tartalom korábbi kommentelőinek (az aktor kivételével)
+    await data.addCommentNotifications(id, req.user.id, req.user.display_name || 'Valaki');
     res.json({ comment });
   } catch (err) {
     next(err);
@@ -136,6 +148,24 @@ router.delete('/comments/:id', requireUser, async (req, res, next) => {
     const id = parseInt(req.params.id, 10);
     const ok = await data.deleteComment(id, req.user.id, false);
     if (!ok) return res.status(403).json({ error: 'Nem törölhető' });
+    res.json({ ok: true });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// --- Értesítések (bejelentkezett felhasználóknak) ---
+router.get('/notifications', requireUser, async (req, res, next) => {
+  try {
+    res.json(await data.listNotifications(req.user.id));
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.post('/notifications/read', requireUser, async (req, res, next) => {
+  try {
+    await data.markNotificationsRead(req.user.id);
     res.json({ ok: true });
   } catch (err) {
     next(err);
