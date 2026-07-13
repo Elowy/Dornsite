@@ -182,3 +182,12 @@ body {
   margin-bottom: 8px;
   word-break: break-all;
 }
+
+.item-tags { display: flex; flex-wrap: wrap; gap: 5px; margin-bottom: 8px; }
+.tagchip {
+  font-size: 11px;
+  background: rgba(255,255,255,0.08);
+  color: var(--muted);
+  border-radius: 999px;
+  padding: 2px 8px;
+}

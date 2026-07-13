@@ -83,6 +83,24 @@ async function init() {
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
   `);
 
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS tags (
+      id   INT AUTO_INCREMENT PRIMARY KEY,
+      name VARCHAR(100) NOT NULL UNIQUE
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+  `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS content_tags (
+      content_id INT NOT NULL,
+      tag_id     INT NOT NULL,
+      PRIMARY KEY (content_id, tag_id),
+      KEY idx_content_tags_tag (tag_id),
+      CONSTRAINT fk_ct_content FOREIGN KEY (content_id) REFERENCES content(id) ON DELETE CASCADE,
+      CONSTRAINT fk_ct_tag     FOREIGN KEY (tag_id)     REFERENCES tags(id)    ON DELETE CASCADE
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+  `);
+
   // Migráció: régi adatbázisokban hiányozhat a link oszlop.
   if (!(await columnExists('content', 'link'))) {
     await pool.query(
@@ -91,8 +109,70 @@ async function init() {
   }
 }
 
+// --- Címkék (tag-ek) segédfüggvényei ---
+function normalizeTags(list) {
+  const seen = new Set();
+  const out = [];
+  for (const raw of list || []) {
+    const name = String(raw).trim().toLowerCase();
+    if (!name || seen.has(name)) continue;
+    seen.add(name);
+    out.push(name);
+  }
+  return out.slice(0, 20);
+}
+
+// db lehet a pool vagy egy tranzakciós connection
+async function setTagsRaw(db, contentId, tagNames) {
+  const names = normalizeTags(tagNames);
+  await db.query('DELETE FROM content_tags WHERE content_id = ?', [contentId]);
+  for (const name of names) {
+    await db.query('INSERT IGNORE INTO tags (name) VALUES (?)', [name]);
+    const [[tag]] = await db.query('SELECT id FROM tags WHERE name = ?', [name]);
+    await db.query('INSERT IGNORE INTO content_tags (content_id, tag_id) VALUES (?, ?)', [
+      contentId,
+      tag.id,
+    ]);
+  }
+}
+
+async function tagsFor(contentId) {
+  const [rows] = await pool.query(
+    `SELECT t.name FROM content_tags ct JOIN tags t ON t.id = ct.tag_id
+      WHERE ct.content_id = ? ORDER BY t.name`,
+    [contentId]
+  );
+  return rows.map((r) => r.name);
+}
+
+async function listTags() {
+  const [rows] = await pool.query(
+    `SELECT t.name, COUNT(c.id) AS count
+       FROM tags t
+       LEFT JOIN content_tags ct ON ct.tag_id = t.id
+       LEFT JOIN content c ON c.id = ct.content_id AND c.active = 1
+      GROUP BY t.id
+      HAVING count > 0
+      ORDER BY count DESC, t.name`
+  );
+  return rows.map((r) => ({ name: r.name, count: Number(r.count) }));
+}
+
 // --- Tartalom (publikus) ---
-async function getCards(sessionId, limit) {
+async function getCards(sessionId, limit, tag) {
+  if (tag) {
+    const [rows] = await pool.query(
+      `SELECT c.id, c.title, c.link, c.type, c.filename, c.mime
+         FROM content c
+         JOIN content_tags ct ON ct.content_id = c.id
+         JOIN tags t ON t.id = ct.tag_id
+        WHERE c.active = 1 AND t.name = ?
+          AND c.id NOT IN (SELECT content_id FROM votes WHERE session_id = ?)
+        ORDER BY RAND() LIMIT ?`,
+      [String(tag).toLowerCase(), sessionId, Number(limit)]
+    );
+    return rows;
+  }
   const [rows] = await pool.query(
     `SELECT id, title, link, type, filename, mime
        FROM content
@@ -115,7 +195,9 @@ async function getPublicContent(id) {
     'SELECT id, title, link, type, filename FROM content WHERE id = ? AND active = 1',
     [id]
   );
-  return rows[0] || null;
+  if (!rows[0]) return null;
+  rows[0].tags = await tagsFor(id);
+  return rows[0];
 }
 
 async function vote(contentId, sessionId, direction) {
@@ -152,10 +234,11 @@ async function addContent(items) {
   try {
     await conn.beginTransaction();
     for (const it of items) {
-      await conn.query(
+      const [res] = await conn.query(
         `INSERT INTO content (title, link, type, filename, mime) VALUES (?, ?, ?, ?, ?)`,
         [it.title, it.link || '', it.type, it.filename, it.mime]
       );
+      await setTagsRaw(conn, res.insertId, it.tags);
     }
     await conn.commit();
     return items.length;
@@ -178,21 +261,31 @@ async function listContent() {
       GROUP BY c.id
       ORDER BY c.created_at DESC`
   );
+
+  const [tagRows] = await pool.query(
+    `SELECT ct.content_id AS cid, t.name FROM content_tags ct JOIN tags t ON t.id = ct.tag_id`
+  );
+  const tagMap = {};
+  for (const tr of tagRows) (tagMap[tr.cid] = tagMap[tr.cid] || []).push(tr.name);
+
   return rows.map((r) => ({
     ...r,
     likes: Number(r.likes),
     dislikes: Number(r.dislikes),
     comments: Number(r.comments),
+    tags: (tagMap[r.id] || []).sort(),
   }));
 }
 
-async function editContent(id, { title, link }) {
+async function editContent(id, { title, link, tags }) {
   const [res] = await pool.query('UPDATE content SET title = ?, link = ? WHERE id = ?', [
     title,
     link || '',
     id,
   ]);
-  return res.affectedRows > 0;
+  if (res.affectedRows === 0) return false;
+  if (tags !== undefined) await setTagsRaw(pool, id, tags);
+  return true;
 }
 
 async function getStats() {
@@ -304,6 +397,7 @@ async function deleteComment(id, userId, isAdmin) {
 module.exports = {
   init,
   getCards,
+  listTags,
   contentActiveExists,
   getPublicContent,
   vote,

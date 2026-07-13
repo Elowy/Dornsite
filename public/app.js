@@ -109,12 +109,47 @@ const loadingEl = document.getElementById('loading');
 const likeCountEl = document.getElementById('likeCount');
 
 let queue = [];
+let activeTag = ''; // '' = minden címke
 
 // ============ API ============
 async function fetchCards() {
-  const res = await fetch(`/api/cards?session=${encodeURIComponent(SESSION)}&limit=15`);
+  const tagParam = activeTag ? `&tag=${encodeURIComponent(activeTag)}` : '';
+  const res = await fetch(`/api/cards?session=${encodeURIComponent(SESSION)}&limit=15${tagParam}`);
   const data = await res.json();
   return data.cards || [];
+}
+
+// ============ Címke-szűrő sáv ============
+const filterBar = document.getElementById('filterBar');
+
+async function loadFilterBar() {
+  let tags = [];
+  try {
+    tags = (await (await fetch('/api/tags')).json()).tags || [];
+  } catch {
+    return;
+  }
+  if (tags.length === 0) {
+    filterBar.classList.add('hidden');
+    return;
+  }
+  filterBar.classList.remove('hidden');
+  filterBar.innerHTML = '';
+  const chips = [{ name: '', label: 'Mind' }, ...tags.map((t) => ({ name: t.name, label: `#${t.name}` }))];
+  for (const c of chips) {
+    const btn = document.createElement('button');
+    btn.className = 'chip' + (c.name === activeTag ? ' active' : '');
+    btn.textContent = c.label;
+    btn.addEventListener('click', () => selectTag(c.name));
+    filterBar.appendChild(btn);
+  }
+}
+
+function selectTag(tag) {
+  if (tag === activeTag) return;
+  activeTag = tag;
+  loadFilterBar();
+  init();
 }
 
 async function sendVote(contentId, direction) {
@@ -312,6 +347,7 @@ async function openDetail(id) {
   detailMedia.innerHTML = '';
   detailTitle.textContent = 'Betöltés…';
   detailLink.classList.add('hidden');
+  document.getElementById('detailTags').innerHTML = '';
   commentsList.innerHTML = '';
   commentCount.textContent = '0';
   detailPanel.classList.remove('hidden');
@@ -322,6 +358,7 @@ async function openDetail(id) {
     const { content } = await res.json();
     detailTitle.textContent = content.title || 'Tartalom';
     detailMedia.innerHTML = mediaHtml(content);
+    renderDetailTags(content.tags || []);
     if (content.link) {
       detailLink.href = content.link;
       detailLink.classList.remove('hidden');
@@ -332,6 +369,21 @@ async function openDetail(id) {
 
   updateCommentUI();
   loadComments(id);
+}
+
+function renderDetailTags(tags) {
+  const el = document.getElementById('detailTags');
+  el.innerHTML = '';
+  for (const name of tags) {
+    const chip = document.createElement('button');
+    chip.className = 'chip small';
+    chip.textContent = `#${name}`;
+    chip.addEventListener('click', () => {
+      closeDetail();
+      selectTag(name);
+    });
+    el.appendChild(chip);
+  }
 }
 
 function closeDetail() {
@@ -559,6 +611,7 @@ async function init() {
 (async function start() {
   await Auth.refresh();
   initGoogle();
+  loadFilterBar();
   await init();
   // Megosztott mélylink: ?c=ID → nyisd meg a részletet
   const params = new URLSearchParams(location.search);

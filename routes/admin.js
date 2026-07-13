@@ -76,10 +76,12 @@ router.post('/upload', requireAdmin, upload.array('files', 20), async (req, res,
     }
     const titleBase = (req.body.title || '').trim();
     const linkBase = (req.body.link || '').trim();
+    const tagsBase = String(req.body.tags || '').split(',');
 
     const items = files.map((f) => ({
       title: titleBase,
       link: linkBase,
+      tags: tagsBase,
       type: /^video\//.test(f.mimetype) ? 'video' : 'image',
       filename: f.filename,
       mime: f.mimetype,
@@ -132,7 +134,8 @@ router.put('/content/:id', requireAdmin, async (req, res, next) => {
     const id = parseInt(req.params.id, 10);
     const title = String(req.body.title || '').trim();
     const link = String(req.body.link || '').trim();
-    const found = await data.editContent(id, { title, link });
+    const tags = String(req.body.tags || '').split(',');
+    const found = await data.editContent(id, { title, link, tags });
     if (!found) return res.status(404).json({ error: 'Nem található' });
     res.json({ ok: true });
   } catch (err) {

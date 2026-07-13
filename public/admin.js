@@ -118,10 +118,12 @@ async function editContent(id) {
   if (title === null) return;
   const link = prompt('Link (üresen hagyható):', c ? c.link || '' : '');
   if (link === null) return;
+  const tags = prompt('Címkék vesszővel elválasztva:', c && c.tags ? c.tags.join(', ') : '');
+  if (tags === null) return;
   await fetch(`/api/admin/content/${id}`, {
     method: 'PUT',
     headers: authHeaders({ 'Content-Type': 'application/json' }),
-    body: JSON.stringify({ title, link }),
+    body: JSON.stringify({ title, link, tags }),
   });
   loadContent();
 }
@@ -133,6 +135,9 @@ function itemHtml(c) {
   const link = c.link
     ? `<a class="item-link" href="${escapeHtml(c.link)}" target="_blank" rel="noopener">🔗 link</a>`
     : '';
+  const tags = (c.tags && c.tags.length)
+    ? `<div class="item-tags">${c.tags.map((t) => `<span class="tagchip">#${escapeHtml(t)}</span>`).join('')}</div>`
+    : '';
   return `
     <div class="item ${c.active ? '' : 'inactive'}">
       <div class="thumb">${media}</div>
@@ -143,6 +148,7 @@ function itemHtml(c) {
           <span class="d">✕ ${c.dislikes}</span>
           <span class="c">💬 ${c.comments || 0}</span>
         </div>
+        ${tags}
         ${link}
         <div class="item-actions">
           <button data-edit="${c.id}">Szerkeszt</button>
@@ -205,6 +211,7 @@ document.getElementById('uploadForm').addEventListener('submit', async (e) => {
   const fd = new FormData();
   fd.append('title', document.getElementById('uploadTitle').value);
   fd.append('link', document.getElementById('uploadLink').value);
+  fd.append('tags', document.getElementById('uploadTags').value);
   selectedFiles.forEach((f) => fd.append('files', f));
 
   btn.disabled = true;
@@ -219,6 +226,7 @@ document.getElementById('uploadForm').addEventListener('submit', async (e) => {
       fileInput.value = '';
       document.getElementById('uploadTitle').value = '';
       document.getElementById('uploadLink').value = '';
+      document.getElementById('uploadTags').value = '';
       loadContent();
       loadStats();
     } else {

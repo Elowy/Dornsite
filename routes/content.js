@@ -11,9 +11,10 @@ router.get('/cards', async (req, res, next) => {
   try {
     const sessionId = String(req.query.session || '').trim();
     const limit = Math.min(parseInt(req.query.limit, 10) || 10, 30);
+    const tag = String(req.query.tag || '').trim();
     if (!sessionId) return res.status(400).json({ error: 'Hiányzó session azonosító' });
 
-    const rows = await data.getCards(sessionId, limit);
+    const rows = await data.getCards(sessionId, limit, tag || undefined);
     const cards = rows.map((r) => ({
       id: r.id,
       title: r.title,
@@ -27,6 +28,15 @@ router.get('/cards', async (req, res, next) => {
   }
 });
 
+// Elérhető címkék (a szűrősávhoz)
+router.get('/tags', async (req, res, next) => {
+  try {
+    res.json({ tags: await data.listTags() });
+  } catch (err) {
+    next(err);
+  }
+});
+
 // Egy adott tartalom nyilvános adatai (megosztható link / részletnézet)
 router.get('/content/:id', async (req, res, next) => {
   try {
@@ -34,7 +44,14 @@ router.get('/content/:id', async (req, res, next) => {
     const c = await data.getPublicContent(id);
     if (!c) return res.status(404).json({ error: 'A tartalom nem található' });
     res.json({
-      content: { id: c.id, title: c.title, link: c.link || '', type: c.type, url: `/uploads/${c.filename}` },
+      content: {
+        id: c.id,
+        title: c.title,
+        link: c.link || '',
+        type: c.type,
+        url: `/uploads/${c.filename}`,
+        tags: c.tags || [],
+      },
     });
   } catch (err) {
     next(err);

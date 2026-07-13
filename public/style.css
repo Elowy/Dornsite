@@ -406,3 +406,36 @@ body {
   background: rgba(255,255,255,0.12);
 }
 .auth-sep span { padding: 0 12px; }
+
+/* ===== Címke-szűrő sáv ===== */
+.filter-bar {
+  flex: 0 0 auto;
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  padding: 4px max(16px, env(safe-area-inset-left)) 8px max(16px, env(safe-area-inset-right));
+  scrollbar-width: none;
+  -webkit-overflow-scrolling: touch;
+}
+.filter-bar::-webkit-scrollbar { display: none; }
+.chip {
+  flex: 0 0 auto;
+  background: rgba(255,255,255,0.08);
+  color: var(--text);
+  border: none;
+  border-radius: 999px;
+  padding: 7px 14px;
+  font-size: 14px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.15s;
+}
+.chip.active { background: var(--accent); color: #fff; }
+.chip.small { padding: 5px 11px; font-size: 13px; }
+
+.detail-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 12px;
+}
