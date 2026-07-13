@@ -154,14 +154,40 @@ function selectTag(tag) {
 
 async function sendVote(contentId, direction) {
   try {
-    await fetch('/api/vote', {
+    const res = await fetch('/api/vote', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ contentId, direction, session: SESSION }),
     });
+    return await res.json();
   } catch (e) {
     console.error('Szavazat hiba:', e);
+    return null;
   }
+}
+
+// ============ "Match" felugró ============
+function showMatch(match) {
+  const overlay = document.getElementById('matchOverlay');
+  const emoji = document.getElementById('matchEmoji');
+  const title = document.getElementById('matchTitle');
+  const sub = document.getElementById('matchSub');
+  if (match && match.popular) {
+    emoji.textContent = '🔥';
+    title.textContent = 'Match!';
+    sub.textContent = `Sokan kedvelik – már ${match.likes} lájk!`;
+  } else {
+    emoji.textContent = '❤️';
+    title.textContent = 'Tetszik!';
+    sub.textContent = '';
+  }
+  overlay.classList.remove('hidden');
+  overlay.classList.add('show');
+  clearTimeout(showMatch._t);
+  showMatch._t = setTimeout(() => {
+    overlay.classList.remove('show');
+    setTimeout(() => overlay.classList.add('hidden'), 250);
+  }, match && match.popular ? 1300 : 750);
 }
 
 async function refreshLikeCount() {
@@ -282,7 +308,12 @@ function flyOut(card, direction) {
   const dir = direction === 'like' ? 1 : -1;
   card.style.transition = 'transform 0.4s ease';
   card.style.transform = `translate(${dir * window.innerWidth}px, -40px) rotate(${dir * 30}deg)`;
-  sendVote(id, direction).then(() => { if (direction === 'like') refreshLikeCount(); });
+  sendVote(id, direction).then((resp) => {
+    if (direction === 'like') {
+      refreshLikeCount();
+      showMatch(resp && resp.match);
+    }
+  });
   setTimeout(() => {
     card.remove();
     if (queue.length < 3) topUp();
@@ -496,6 +527,14 @@ function updateAuthUI() {
   updateCommentUI();
   // a kommentek újrarajzolása a saját-törlés gomb miatt
   if (currentDetailId && !detailPanel.classList.contains('hidden')) loadComments(currentDetailId);
+  // értesítés-harang állapota
+  if (Auth.user) {
+    startNotifPolling();
+  } else {
+    notifBtn.classList.add('hidden');
+    notifBadge.classList.add('hidden');
+    clearInterval(notifTimer);
+  }
 }
 
 function openAuth() { authModal.classList.remove('hidden'); }
@@ -566,6 +605,72 @@ function showAuthError(el, msg) {
 }
 
 document.getElementById('commentLoginBtn').addEventListener('click', openAuth);
+
+// ============ Értesítések ============
+const notifBtn = document.getElementById('notifBtn');
+const notifBadge = document.getElementById('notifBadge');
+const notifPanel = document.getElementById('notifPanel');
+const notifList = document.getElementById('notifList');
+const notifEmpty = document.getElementById('notifEmpty');
+let notifTimer = null;
+
+async function refreshNotifCount() {
+  if (!Auth.user) {
+    notifBtn.classList.add('hidden');
+    return;
+  }
+  notifBtn.classList.remove('hidden');
+  try {
+    const data = await (await fetch('/api/notifications', { headers: Auth.headers() })).json();
+    const n = data.unread || 0;
+    notifBadge.textContent = n > 9 ? '9+' : String(n);
+    notifBadge.classList.toggle('hidden', n === 0);
+    return data;
+  } catch {
+    /* néma */
+  }
+}
+
+async function openNotif() {
+  if (!Auth.user) return openAuth();
+  let data;
+  try {
+    data = await (await fetch('/api/notifications', { headers: Auth.headers() })).json();
+  } catch {
+    return toast('Az értesítések nem tölthetők be');
+  }
+  const items = data.items || [];
+  notifList.innerHTML = '';
+  notifEmpty.classList.toggle('hidden', items.length > 0);
+  for (const it of items) {
+    const el = document.createElement('div');
+    el.className = 'notif-item' + (it.is_read ? '' : ' unread');
+    const when = String(it.created_at || '').replace('T', ' ').slice(0, 16);
+    el.innerHTML = `
+      <div class="notif-text"><strong>${escapeHtml(it.actor_name)}</strong> hozzászólt ehhez:
+        <em>${escapeHtml(it.body) || 'egy tartalom'}</em></div>
+      <div class="notif-date">${escapeHtml(when)}</div>`;
+    if (it.content_id) el.addEventListener('click', () => { notifPanel.classList.add('hidden'); openDetail(it.content_id); });
+    notifList.appendChild(el);
+  }
+  notifPanel.classList.remove('hidden');
+  // megnyitáskor olvasottá tesszük
+  try {
+    await fetch('/api/notifications/read', { method: 'POST', headers: Auth.headers() });
+    notifBadge.classList.add('hidden');
+  } catch {}
+}
+
+function startNotifPolling() {
+  clearInterval(notifTimer);
+  if (Auth.user) {
+    refreshNotifCount();
+    notifTimer = setInterval(refreshNotifCount, 45000);
+  }
+}
+
+notifBtn.addEventListener('click', openNotif);
+document.getElementById('closeNotif').addEventListener('click', () => notifPanel.classList.add('hidden'));
 
 // ============ Toast ============
 let toastTimer;

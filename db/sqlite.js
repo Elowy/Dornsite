@@ -71,11 +71,25 @@ async function init() {
       FOREIGN KEY (tag_id)     REFERENCES tags(id)    ON DELETE CASCADE
     );
 
+    CREATE TABLE IF NOT EXISTS notifications (
+      id         INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id    INTEGER NOT NULL,
+      type       TEXT NOT NULL DEFAULT 'comment',
+      content_id INTEGER,
+      actor_name TEXT NOT NULL DEFAULT '',
+      body       TEXT NOT NULL DEFAULT '',
+      is_read    INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      FOREIGN KEY (user_id)    REFERENCES users(id)   ON DELETE CASCADE,
+      FOREIGN KEY (content_id) REFERENCES content(id) ON DELETE CASCADE
+    );
+
     CREATE INDEX IF NOT EXISTS idx_votes_content ON votes(content_id);
     CREATE INDEX IF NOT EXISTS idx_votes_session ON votes(session_id);
     CREATE UNIQUE INDEX IF NOT EXISTS idx_votes_unique ON votes(content_id, session_id);
     CREATE INDEX IF NOT EXISTS idx_comments_content ON comments(content_id);
     CREATE INDEX IF NOT EXISTS idx_content_tags_tag ON content_tags(tag_id);
+    CREATE INDEX IF NOT EXISTS idx_notif_user ON notifications(user_id);
   `);
 
   // Migráció: régi adatbázisokban hiányozhat a link oszlop.
@@ -355,6 +369,45 @@ async function deleteComment(id, userId, isAdmin) {
   return true;
 }
 
+// --- "Match" jelzés: egy tartalom hány like-ot kapott ---
+async function getLikeCount(contentId) {
+  return db
+    .prepare("SELECT COUNT(*) AS n FROM votes WHERE content_id = ? AND direction = 'like'")
+    .get(contentId).n;
+}
+
+// --- Értesítések ---
+// Új komment esetén értesítés minden korábbi kommentelőnek (az aktor kivételével).
+async function addCommentNotifications(contentId, actorUserId, actorName) {
+  const row = db.prepare('SELECT title FROM content WHERE id = ?').get(contentId);
+  const title = (row && row.title) || '';
+  db.prepare(
+    `INSERT INTO notifications (user_id, type, content_id, actor_name, body)
+     SELECT DISTINCT c.user_id, 'comment', ?, ?, ?
+       FROM comments c
+      WHERE c.content_id = ? AND c.user_id <> ?`
+  ).run(contentId, actorName, title, contentId, actorUserId);
+}
+
+async function listNotifications(userId, limit = 30) {
+  const items = db
+    .prepare(
+      `SELECT id, type, content_id, actor_name, body, is_read, created_at
+         FROM notifications WHERE user_id = ?
+        ORDER BY created_at DESC, id DESC LIMIT ?`
+    )
+    .all(userId, limit)
+    .map((r) => ({ ...r, is_read: !!r.is_read }));
+  const unread = db
+    .prepare('SELECT COUNT(*) AS n FROM notifications WHERE user_id = ? AND is_read = 0')
+    .get(userId).n;
+  return { items, unread: Number(unread) };
+}
+
+async function markNotificationsRead(userId) {
+  db.prepare('UPDATE notifications SET is_read = 1 WHERE user_id = ? AND is_read = 0').run(userId);
+}
+
 module.exports = {
   init,
   getCards,
@@ -362,6 +415,7 @@ module.exports = {
   contentActiveExists,
   getPublicContent,
   vote,
+  getLikeCount,
   getLikesAndStats,
   addContent,
   listContent,
@@ -376,4 +430,7 @@ module.exports = {
   addComment,
   getComments,
   deleteComment,
+  addCommentNotifications,
+  listNotifications,
+  markNotificationsRead,
 };
