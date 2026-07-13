@@ -82,6 +82,14 @@ App** felületen kell beállítani a Node-verziót, a környezeti változókat
 lefuttatni az `npm install`-t. Az útmutató a MySQL adatbázis cPanel-es
 létrehozását is tartalmazza.
 
+### Automatikus deploy (CI/CD)
+
+A módosítások automatikus feltöltése a cPanel tárhelyre a
+[**DEPLOY-AUTO.md**](DEPLOY-AUTO.md) szerint állítható be. A repóban van egy
+GitHub Actions workflow (`.github/workflows/deploy.yml`), ami a `main` ág
+frissülésekor FTP-vel felmásolja a változásokat és újraindítja a Node appot;
+valamint egy `.cpanel.yml` a cPanel natív Git-deployhoz.
+
 ## Projekt szerkezete
 
 ```

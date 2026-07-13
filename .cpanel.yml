@@ -1,0 +1,15 @@
+---
+# cPanel "Git Version Control" natív telepítése.
+# Akkor fut le, amikor a cPanel-ben a repónál a "Deploy HEAD Commit" gombra
+# kattintasz (vagy egy pull után). Írd át a DEPLOYPATH-ot a saját elérési utadra
+# (a cPanel felhasználóneveddel és az alkalmazás mappájával).
+deployment:
+  tasks:
+    - export DEPLOYPATH=/home/FELHASZNALO/dornsite
+    - /bin/mkdir -p $DEPLOYPATH
+    # Forrásfájlok másolása (a data/ és uploads/ NEM íródik felül)
+    - /bin/cp -R app.js server.js paths.js auth.js package.json package-lock.json $DEPLOYPATH/
+    - /bin/cp -R db routes public $DEPLOYPATH/
+    # Passenger újraindítása
+    - /bin/mkdir -p $DEPLOYPATH/tmp
+    - /bin/touch $DEPLOYPATH/tmp/restart.txt
